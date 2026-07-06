@@ -1,0 +1,4 @@
+# Copy this file to gradle.properties and populate your values
+RELEASE_STORE_PASSWORD=your_keystore_password
+RELEASE_KEY_PASSWORD=your_key_password
+RELEASE_KEY_ALIAS=your_key_alias

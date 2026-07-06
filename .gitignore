@@ -1,0 +1,23 @@
+# Gradle caches & build outputs
+.gradle/
+build/
+app/build/
+
+# Android Studio configuration
+*.iml
+.idea/
+.navigation/
+.gradle
+.cxx/
+captures/
+
+# User-specific local properties
+local.properties
+
+# Signing credentials
+*.jks
+*.keystore
+gradle.properties
+
+# Log files
+*.log

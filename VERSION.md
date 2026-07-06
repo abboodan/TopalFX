@@ -1,0 +1,36 @@
+# TopalFX Pro - Version History
+
+This ledger tracks the version increments and changelogs of the TopalFX Pro remittance engine.
+
+---
+
+## [v1.3.0] - 2026-07-06
+### Added
+- **TopalFX Pro Branding Header**: Centered branding header displaying the circular app logo, static name "TopalFX Pro", and version number.
+- **Fee Inclusive / Exclusive Toggle**: Added option in Mode A (Send Exact) to either charge fees on top of the input amount (exclusive) or deduct fees from the input amount (inclusive).
+- **Manual Market Rate Override**: Support manual editing of the Market Rate input field to allow fully offline calculations when the live API fetch fails.
+- **Clear Fields Shortcut**: A button to instantly clear transaction amount fields and calculation results.
+- **Signed Release Packaging**: Integrated signing configuration inside build script to package installable release APKs directly.
+
+### Changed
+- Improved RTL arrow layout symbols to point to the left (`←`) in Arabic translation, matching reading direction.
+
+---
+
+## [v1.2.0] - 2026-07-02
+### Added
+- **Mode C: Custom Deal (Flat Exchange)**: Special calculation mode with hidden calculations (no fees shown to customer).
+- Hidden profits calculations inside Admin Panel based on market costs and internal agent percentage/flat costs.
+
+---
+
+## [v1.1.0] - 2026-06-29
+### Added
+- Bi-directional transfers (EUR to USD / USD to EUR).
+- RTL layout direction adjustments to prevent negative currency symbol scrambling.
+- Stacked partner configurations in Admin Panel to support vertical scrolling.
+
+---
+
+## [v1.0.0] - 2026-06-25
+- Initial release of Remittance Calculator with live rates from Frankfurter API.
