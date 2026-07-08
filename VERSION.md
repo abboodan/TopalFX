@@ -4,6 +4,12 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.4.1] - 2026-07-08
+### Changed
+- Enlarge the centered application branding logo to 100.dp with rounded corners and a more prominent border.
+
+---
+
 ## [v1.4.0] - 2026-07-08
 ### Added
 - **Binance-inspired Currency Watchlist**: Added a premium scrollable exchange rate watchlist styled with a deep dark aesthetic.

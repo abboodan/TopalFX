@@ -569,9 +569,9 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                         painter = painterResource(id = R.drawable.ic_launcher),
                         contentDescription = "App Logo",
                         modifier = Modifier
-                            .size(80.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                            .size(100.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
@@ -582,7 +582,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.4.0",
+                        text = "v1.4.1",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
