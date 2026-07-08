@@ -11,8 +11,8 @@ android {
         applicationId = "com.topal.fx"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.3.0"
+        versionCode = 4
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -72,6 +72,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Lifecycle ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")

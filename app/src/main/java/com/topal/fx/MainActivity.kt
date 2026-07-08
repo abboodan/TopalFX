@@ -13,6 +13,15 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import coil.compose.AsyncImage
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.painterResource
@@ -328,25 +337,164 @@ val ArabicStrings = AppStrings(
 )
 
 /**
- * Maps standard currency code to its Arabic localized name, falling back to uppercase code.
+ * Helper to format rates based on magnitude.
  */
-fun getCurrencyName(code: String, language: Language): String {
-    return if (language == Language.AR) {
-        when (code.uppercase()) {
-            "EUR" -> "يورو"
-            "USD" -> "دولار"
-            "TRY" -> "ليرة"
-            "GBP" -> "جنيه"
-            "SAR" -> "ريال"
-            "AED" -> "درهم"
-            "JPY" -> "ين"
-            "CHF" -> "فرنك"
-            "AUD" -> "أسترالي"
-            "CAD" -> "كندي"
-            else -> code.uppercase()
+fun formatRate(rate: Double): String {
+    return when {
+        rate == 0.0 -> "0.00"
+        rate < 0.1 -> String.format(Locale.US, "%.6f", rate)
+        rate < 1.0 -> String.format(Locale.US, "%.5f", rate)
+        rate < 100.0 -> String.format(Locale.US, "%.4f", rate)
+        else -> String.format(Locale.US, "%.2f", rate)
+    }
+}
+
+@Composable
+fun Sparkline(
+    points: List<Double>,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        if (points.size < 2) return@Canvas
+        val min = points.minOrNull() ?: 0.0
+        val max = points.maxOrNull() ?: 0.0
+        val range = max - min
+        
+        val width = size.width
+        val height = size.height
+        val padding = 4.dp.toPx()
+        val usableHeight = height - 2 * padding
+        
+        val path = Path()
+        points.forEachIndexed { index, value ->
+            val x = index * (width / (points.size - 1))
+            val y = if (range == 0.0) {
+                height / 2f
+            } else {
+                height - padding - (((value - min) / range) * usableHeight).toFloat()
+            }
+            if (index == 0) {
+                path.moveTo(x, y)
+            } else {
+                path.lineTo(x, y)
+            }
         }
-    } else {
-        code.uppercase()
+        
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = 2.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
+@Composable
+fun CurrencyRow(
+    rate: CurrencyRate,
+    language: Language,
+    onClick: () -> Unit
+) {
+    val isPositive = rate.changePercentage >= 0.0
+    val trendColor = if (isPositive) Color(0xFF00C853) else Color(0xFFFF1744)
+    val percentageText = String.format(
+        Locale.US,
+        "%s%.2f%% %s",
+        if (isPositive) "+" else "",
+        rate.changePercentage,
+        if (isPositive) "↑" else "↓"
+    )
+
+    // Splitting symbolPair
+    val parts = rate.symbolPair.split("/")
+    val baseCode = parts.getOrNull(0) ?: ""
+    val quoteCode = parts.getOrNull(1) ?: ""
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left Section: Circular double flag icons
+        Row(
+            modifier = Modifier.weight(1.3f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(width = 44.dp, height = 30.dp)
+            ) {
+                AsyncImage(
+                    model = rate.baseCurrencyFlagUrl,
+                    contentDescription = baseCode,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .align(Alignment.TopStart)
+                )
+                AsyncImage(
+                    model = getFlagUrl(quoteCode),
+                    contentDescription = quoteCode,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .align(Alignment.BottomEnd)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = rate.symbolPair,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = rate.fullNamePair,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+        }
+
+        // Center Section: Sparkline Chart
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(30.dp)
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Sparkline(
+                points = rate.trendPoints,
+                color = trendColor,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Right Section: Current rate & Percentage change
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.End
+        ) {
+            Text(
+                text = formatRate(rate.currentRate),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = percentageText,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = trendColor
+            )
+        }
     }
 }
 
@@ -434,7 +582,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.3.0",
+                        text = "v1.4.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -448,112 +596,75 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     textAlign = TextAlign.Start
                 )
 
-                // Live Exchange Rates Board Title
-                Text(
-                    text = strings.liveBoardLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF94A3B8),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    textAlign = TextAlign.Start
-                )
-
-                // Live Exchange Rates Ticker Board (Horizontal Cards similar to Harem App)
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
+                // Live Exchange Rates Board Title with Refresh Button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(uiState.tickerRates) { tickerRate ->
-                        Card(
-                            modifier = Modifier
-                                .width(135.dp)
-                                .clickable {
-                                    viewModel.selectRateFromTicker(tickerRate.rate)
-                                    Toast.makeText(
-                                        context, 
-                                        "${strings.rateCopiedToast}${String.format(Locale.US, "%.4f", tickerRate.rate)}", 
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = when (tickerRate.trend) {
-                                    1 -> Color(0xFF10B981).copy(alpha = 0.35f)
-                                    -1 -> Color(0xFFF43F5E).copy(alpha = 0.35f)
-                                    else -> Color(0xFF334155)
-                                }
+                    Text(
+                        text = strings.liveBoardLabel,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8)
+                    )
+                    IconButton(
+                        onClick = { viewModel.fetchTickerRates() },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        if (uiState.isFetchingTicker) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(1.dp)
-                                ) {
-                                    Text(
-                                        text = getCurrencyName(tickerRate.from, uiState.language),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                    Text(
-                                        text = "/",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF475569)
-                                    )
-                                    Text(
-                                        text = getCurrencyName(tickerRate.to, uiState.language),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                }
-                                
-                                Spacer(modifier = Modifier.height(4.dp))
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh Ticker",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
 
-                                Text(
-                                    text = String.format(Locale.US, "%.4f", tickerRate.rate),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Black,
-                                    color = when (tickerRate.trend) {
-                                        1 -> Color(0xFF10B981) // Green
-                                        -1 -> Color(0xFFF43F5E) // Red
-                                        else -> Color.White
+                // Live Exchange Rates Watchlist Board (Deep dark card styled similar to Binance)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 280.dp),
+                            contentPadding = PaddingValues(bottom = 8.dp)
+                        ) {
+                            itemsIndexed(uiState.tickerRates) { index, currencyRate ->
+                                CurrencyRow(
+                                    rate = currencyRate,
+                                    language = uiState.language,
+                                    onClick = {
+                                        viewModel.selectRateFromTicker(currencyRate.currentRate)
+                                        Toast.makeText(
+                                            context, 
+                                            "${strings.rateCopiedToast}${formatRate(currencyRate.currentRate)}", 
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 )
-
-                                Spacer(modifier = Modifier.height(2.dp))
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    if (tickerRate.trend != 0) {
-                                        Text(
-                                            text = if (tickerRate.trend == 1) "▲" else "▼",
-                                            color = if (tickerRate.trend == 1) Color(0xFF10B981) else Color(0xFFF43F5E),
-                                            fontSize = 10.sp
-                                        )
-                                        Text(
-                                            text = String.format(Locale.US, "%+.2f%%", tickerRate.pctChange),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (tickerRate.trend == 1) Color(0xFF10B981) else Color(0xFFF43F5E),
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    } else {
-                                        Text(
-                                            text = "●",
-                                            color = Color(0xFF64748B),
-                                            fontSize = 8.sp
-                                        )
-                                        Text(
-                                            text = "0.00%",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color(0xFF64748B)
-                                        )
-                                    }
+                                if (index < uiState.tickerRates.size - 1) {
+                                    HorizontalDivider(
+                                        color = Color(0xFF1E293B),
+                                        thickness = 0.5.dp,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
                                 }
                             }
                         }
@@ -1374,7 +1485,14 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     
                     viewModel.getSavedTickerPairs().forEach { pair ->
-                        val dummyRate = TickerRate(pair.first, pair.second, 0.0)
+                        val dummyRate = CurrencyRate(
+                            baseCurrencyFlagUrl = "",
+                            symbolPair = "${pair.first}/${pair.second}",
+                            fullNamePair = "",
+                            currentRate = 0.0,
+                            changePercentage = 0.0,
+                            trendPoints = emptyList()
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

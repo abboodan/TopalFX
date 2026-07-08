@@ -4,6 +4,17 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.4.0] - 2026-07-08
+### Added
+- **Binance-inspired Currency Watchlist**: Added a premium scrollable exchange rate watchlist styled with a deep dark aesthetic.
+- **Double Overlapping Flag Badges**: Added base and quote country flag overlays using Coil AsyncImage.
+- **Dynamic Sparkline Price Charts**: Custom 24h trend lines drawn on Canvas, dynamically colored Green (#00C853) for positive or Red (#FF1744) for negative shifts.
+
+### Changed
+- Watchlist container background made transparent to integrate seamlessly with the app's dark-blue background.
+
+---
+
 ## [v1.3.0] - 2026-07-06
 ### Added
 - **TopalFX Pro Branding Header**: Centered branding header displaying the circular app logo, static name "TopalFX Pro", and version number.

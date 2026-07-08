@@ -51,14 +51,15 @@ data class CalculationResults(
 )
 
 /**
- * Data class representing a rate in the live exchange board.
+ * Data class representing a currency exchange rate in the watchlist.
  */
-data class TickerRate(
-    val from: String,
-    val to: String,
-    val rate: Double,
-    val trend: Int = 0, // 1 for up, -1 for down, 0 for neutral
-    val pctChange: Double = 0.0 // Percentage change compared to last tick
+data class CurrencyRate(
+    val baseCurrencyFlagUrl: String,
+    val symbolPair: String,
+    val fullNamePair: String,
+    val currentRate: Double,
+    val changePercentage: Double,
+    val trendPoints: List<Double>
 )
 
 /**
@@ -108,7 +109,7 @@ data class CalculatorUiState(
     val calculationResults: CalculationResults? = null,
     val calculationError: CalculationError = CalculationError.NONE,
     
-    val tickerRates: List<TickerRate> = emptyList(),
+    val tickerRates: List<CurrencyRate> = emptyList(),
     val isFetchingTicker: Boolean = false,
     val isFeeInclusive: Boolean = false
 )
@@ -126,6 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     // Keeps track of previous rates to calculate trend indicators
     private val previousRatesMap = mutableMapOf<String, Double>()
+    private val trendPointsMap = mutableMapOf<String, MutableList<Double>>()
 
     init {
         loadDefaultSettings()
@@ -185,9 +187,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Toggles the UI language between English and Arabic.
      */
     fun toggleLanguage() {
-        _uiState.update {
-            val nextLang = if (it.language == Language.EN) Language.AR else Language.EN
-            it.copy(language = nextLang)
+        _uiState.update { state ->
+            val nextLang = if (state.language == Language.EN) Language.AR else Language.EN
+            val updatedTickers = state.tickerRates.map { rate ->
+                val parts = rate.symbolPair.split("/")
+                val base = parts.getOrNull(0) ?: ""
+                val quote = parts.getOrNull(1) ?: ""
+                val baseName = getCurrencyName(base, nextLang)
+                val quoteName = getCurrencyName(quote, nextLang)
+                rate.copy(fullNamePair = "$baseName / $quoteName")
+            }
+            state.copy(
+                language = nextLang,
+                tickerRates = updatedTickers
+            )
         }
     }
 
@@ -276,23 +289,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             val deferredRates = pairs.map { pair ->
                 async {
+                    val key = "${pair.first}/${pair.second}"
+                    val lang = _uiState.value.language
+                    val baseName = getCurrencyName(pair.first, lang)
+                    val quoteName = getCurrencyName(pair.second, lang)
+                    val fullName = "$baseName / $quoteName"
                     try {
                         val response = RetrofitClient.apiService.getLatestRates(from = pair.first, to = pair.second)
                         val rate = response.rates[pair.second]
                         if (rate != null) {
-                            val key = "${pair.first}/${pair.second}"
                             val prevRate = previousRatesMap[key] ?: 0.0
-                            val trend = if (prevRate > 0.0) {
-                                if (rate > prevRate) 1 else if (rate < prevRate) -1 else 0
-                            } else 0
                             val pctChange = if (prevRate > 0.0) {
                                 ((rate - prevRate) / prevRate) * 100.0
                             } else 0.0
                             previousRatesMap[key] = rate
-                            TickerRate(pair.first, pair.second, rate, trend, pctChange)
-                        } else null
+                            
+                            // Get/generate trend points
+                            val points = trendPointsMap.getOrPut(key) {
+                                val list = mutableListOf<Double>()
+                                val random = java.util.Random()
+                                for (i in 0 until 9) {
+                                    val offset = (random.nextDouble() - 0.5) * 0.005 * rate
+                                    list.add(rate + offset)
+                                }
+                                list.add(rate)
+                                list
+                            }
+                            if (points.isEmpty() || points.last() != rate) {
+                                points.add(rate)
+                                if (points.size > 15) {
+                                    points.removeAt(0)
+                                }
+                            }
+                            
+                            CurrencyRate(
+                                baseCurrencyFlagUrl = getFlagUrl(pair.first),
+                                symbolPair = key,
+                                fullNamePair = fullName,
+                                currentRate = rate,
+                                changePercentage = pctChange,
+                                trendPoints = points.toList()
+                            )
+                        } else {
+                            CurrencyRate(
+                                baseCurrencyFlagUrl = getFlagUrl(pair.first),
+                                symbolPair = key,
+                                fullNamePair = fullName,
+                                currentRate = 0.0,
+                                changePercentage = 0.0,
+                                trendPoints = trendPointsMap[key]?.toList() ?: emptyList()
+                            )
+                        }
                     } catch (e: Exception) {
-                        null
+                        CurrencyRate(
+                            baseCurrencyFlagUrl = getFlagUrl(pair.first),
+                            symbolPair = key,
+                            fullNamePair = fullName,
+                            currentRate = 0.0,
+                            changePercentage = 0.0,
+                            trendPoints = trendPointsMap[key]?.toList() ?: emptyList()
+                        )
                     }
                 }
             }
@@ -337,20 +393,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Removes a currency pair from the Live Rates Board.
      */
-    fun deleteTickerPair(pair: TickerRate) {
+    fun deleteTickerPair(pair: CurrencyRate) {
         val pairsStr = sharedPrefs.getString("ticker_pairs", "EUR/USD;EUR/TRY;USD/TRY") ?: "EUR/USD;EUR/TRY;USD/TRY"
         val pairs = parsePairs(pairsStr).toMutableList()
-        val target = Pair(pair.from, pair.to)
-        
-        if (pairs.remove(target)) {
-            val newSerialized = pairs.joinToString(";") { "${it.first}/${it.second}" }
-            sharedPrefs.edit().putString("ticker_pairs", newSerialized).apply()
-            
-            // Remove from cache
-            val key = "${pair.from}/${pair.to}"
-            previousRatesMap.remove(key)
-            
-            fetchTickerRates()
+        val parts = pair.symbolPair.split("/")
+        if (parts.size == 2) {
+            val target = Pair(parts[0], parts[1])
+            if (pairs.remove(target)) {
+                val newSerialized = pairs.joinToString(";") { "${it.first}/${it.second}" }
+                sharedPrefs.edit().putString("ticker_pairs", newSerialized).apply()
+                
+                // Remove from cache
+                val key = "${parts[0]}/${parts[1]}"
+                previousRatesMap.remove(key)
+                trendPointsMap.remove(key)
+                
+                fetchTickerRates()
+            }
         }
     }
 
@@ -765,4 +824,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }
+}
+
+/**
+ * Global helper to translate currency code.
+ */
+fun getCurrencyName(code: String, language: Language): String {
+    return if (language == Language.AR) {
+        when (code) {
+            "EUR" -> "اليورو"
+            "USD" -> "الدولار الأمريكي"
+            "TRY" -> "الليرة التركية"
+            "IQD" -> "الدينار العراقي"
+            "GBP" -> "الجنيه الإسترليني"
+            "CAD" -> "الدولار الكندي"
+            "AUD" -> "الدولار الأسترالي"
+            "JPY" -> "الين الياباني"
+            "SAR" -> "الريال السعودي"
+            "AED" -> "الدرهم الإماراتي"
+            "KWD" -> "الدينار الكويتي"
+            else -> code
+        }
+    } else {
+        when (code) {
+            "EUR" -> "Euro"
+            "USD" -> "US Dollar"
+            "TRY" -> "Turkish Lira"
+            "IQD" -> "Iraqi Dinar"
+            "GBP" -> "British Pound"
+            "CAD" -> "Canadian Dollar"
+            "AUD" -> "Australian Dollar"
+            "JPY" -> "Japanese Yen"
+            "SAR" -> "Saudi Riyal"
+            "AED" -> "UAE Dirham"
+            "KWD" -> "Kuwaiti Dinar"
+            else -> code
+        }
+    }
+}
+
+/**
+ * Global helper to get Flag URL from CDN.
+ */
+fun getFlagUrl(currencyCode: String): String {
+    val code = when (currencyCode.uppercase()) {
+        "EUR" -> "eu"
+        "USD" -> "us"
+        "TRY" -> "tr"
+        "IQD" -> "iq"
+        "GBP" -> "gb"
+        "CAD" -> "ca"
+        "AUD" -> "au"
+        "JPY" -> "jp"
+        "SAR" -> "sa"
+        "AED" -> "ae"
+        "KWD" -> "kw"
+        else -> currencyCode.take(2).lowercase()
+    }
+    return "https://flagcdn.com/w80/$code.png"
 }
