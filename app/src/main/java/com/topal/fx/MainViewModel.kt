@@ -77,6 +77,14 @@ enum class CalculationError {
 }
 
 /**
+ * Supported Deduction Base Options for Office Cost.
+ */
+enum class DeductionBase {
+    ON_RECEIVED_BASE,   // Option A: On Received Amount (EUR)
+    ON_DELIVERED_TARGET // Option B: On Delivered Target (USD)
+}
+
+/**
  * Representation of the UI state for the remittance calculator.
  */
 data class CalculatorUiState(
@@ -96,6 +104,7 @@ data class CalculatorUiState(
     // Direction & Mode settings
     val transferDirection: TransferDirection = TransferDirection.EUR_TO_USD,
     val transferMode: TransferMode = TransferMode.SEND_BASE,
+    val deductionBase: DeductionBase = DeductionBase.ON_RECEIVED_BASE,
     
     // Admin Cost inputs
     val flatAgentCost: String = "",
@@ -298,21 +307,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val response = RetrofitClient.apiService.getLatestRates(from = pair.first, to = pair.second)
                         val rate = response.rates[pair.second]
                         if (rate != null) {
+                            val rateVal: Double = rate
                             val prevRate = previousRatesMap[key] ?: 0.0
                             val pctChange = if (prevRate > 0.0) {
-                                ((rate - prevRate) / prevRate) * 100.0
+                                ((rateVal - prevRate) / prevRate) * 100.0
                             } else 0.0
-                            previousRatesMap[key] = rate
+                            previousRatesMap[key] = rateVal
                             
                             // Get/generate trend points
                             val points = trendPointsMap.getOrPut(key) {
                                 val list = mutableListOf<Double>()
                                 val random = java.util.Random()
                                 for (i in 0 until 9) {
-                                    val offset = (random.nextDouble() - 0.5) * 0.005 * rate
-                                    list.add(rate + offset)
+                                    val offset: Double = (random.nextDouble() - 0.5) * 0.005 * rateVal
+                                    list.add(rateVal + offset)
                                 }
-                                list.add(rate)
+                                list.add(rateVal)
                                 list
                             }
                             if (points.isEmpty() || points.last() != rate) {
@@ -495,6 +505,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun onDeductionBaseChanged(base: DeductionBase) {
+        _uiState.update {
+            it.copy(
+                deductionBase = base,
+                calculationResults = null,
+                calculationError = CalculationError.NONE
+            )
+        }
+    }
+
     fun onFlatAgentCostChanged(value: String) {
         _uiState.update { it.copy(flatAgentCost = value, calculationError = CalculationError.NONE) }
     }
@@ -545,7 +565,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             flatAgentCost: Double,
             pctAgentCostPercent: Double,
             direction: TransferDirection,
-            isFeeInclusive: Boolean = false
+            isFeeInclusive: Boolean = false,
+            deductionBase: DeductionBase = DeductionBase.ON_RECEIVED_BASE
         ): CalculationResults {
             // If fee is inclusive, we need to subtract the fees from baseAmount (which is the total amount paid)
             val principal = if (isFeeInclusive) {
@@ -579,18 +600,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val grossFeeProfitBase = flatFee + pctFeeBase
 
-            // Agent Costs calculated on the EUR amount
-            val pctAgentCostBase = if (direction == TransferDirection.EUR_TO_USD) {
-                principal * pctAgentCostPercent / 100.0
+            // Agent Costs calculated based on selected Deduction Base and rounded to nearest whole number
+            val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                    targetAmountCust / marketRate
+                } else {
+                    principal
+                }
+                kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                val eurAmount = targetAmountCust
-                val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
-                pctAgentCostEur / customerRate
+                if (direction == TransferDirection.EUR_TO_USD) {
+                    kotlin.math.round(baseAmount * (pctAgentCostPercent / 100.0))
+                } else {
+                    val eurAmount = targetAmountCust
+                    val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
+                    kotlin.math.round(pctAgentCostEur / customerRate)
+                }
             }
 
+            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD) deliveryFee / marketRate else deliveryFee
             val totalAgentCostBase = flatAgentCost + pctAgentCostBase
             val totalProfitBase = grossFeeProfitBase + hiddenSpreadProfitBase
-            val netProfitBase = totalProfitBase - totalAgentCostBase
+            val netProfitBase = totalProfitBase - totalAgentCostBase - deliveryFeeBase
 
             return CalculationResults(
                 totalAmountPaidBase = totalAmountPaidBase,
@@ -617,7 +648,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             deliveryFee: Double,
             flatAgentCost: Double,
             pctAgentCostPercent: Double,
-            direction: TransferDirection
+            direction: TransferDirection,
+            deductionBase: DeductionBase = DeductionBase.ON_RECEIVED_BASE
         ): CalculationResults {
             // Target amount needed before delivery fee is deducted
             val targetAmountCust = targetAmount + deliveryFee
@@ -644,18 +676,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val grossFeeProfitBase = flatFee + pctFeeBase
 
-            // Agent Costs calculated on the EUR amount
-            val pctAgentCostBase = if (direction == TransferDirection.EUR_TO_USD) {
-                baseAmount * pctAgentCostPercent / 100.0
+            // Agent Costs calculated based on selected Deduction Base and rounded to nearest whole number
+            val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                    targetAmount / marketRate
+                } else {
+                    baseAmount
+                }
+                kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                val eurAmount = targetAmountCust
-                val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
-                pctAgentCostEur / customerRate
+                if (direction == TransferDirection.EUR_TO_USD) {
+                    kotlin.math.round(baseAmount * (pctAgentCostPercent / 100.0))
+                } else {
+                    val eurAmount = targetAmountCust
+                    val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
+                    kotlin.math.round(pctAgentCostEur / customerRate)
+                }
             }
 
+            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD) deliveryFee / marketRate else deliveryFee
             val totalAgentCostBase = flatAgentCost + pctAgentCostBase
             val totalProfitBase = grossFeeProfitBase + hiddenSpreadProfitBase
-            val netProfitBase = totalProfitBase - totalAgentCostBase
+            val netProfitBase = totalProfitBase - totalAgentCostBase - deliveryFeeBase
 
             return CalculationResults(
                 totalAmountPaidBase = totalAmountPaidBase,
@@ -679,20 +721,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             marketRate: Double,
             flatAgentCost: Double,
             pctAgentCostPercent: Double,
-            direction: TransferDirection
+            direction: TransferDirection,
+            deductionBase: DeductionBase = DeductionBase.ON_RECEIVED_BASE
         ): CalculationResults {
             // Actual market cost in base currency of target amount delivered
             val baseMarketCost = targetAmountDelivered / marketRate
 
-            // Percentage agent cost calculated strictly on the EUR amount
-            val pctAgentCostBase = if (direction == TransferDirection.EUR_TO_USD) {
-                // EUR is base currency
-                baseAmountReceived * pctAgentCostPercent / 100.0
+            // Percentage agent cost calculated based on Deduction Base and rounded to nearest whole number
+            val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                    targetAmountDelivered / marketRate
+                } else {
+                    baseAmountReceived
+                }
+                kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                // EUR is target currency
-                val eurAmount = targetAmountDelivered
-                val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
-                pctAgentCostEur / marketRate
+                if (direction == TransferDirection.EUR_TO_USD) {
+                    kotlin.math.round(baseAmountReceived * (pctAgentCostPercent / 100.0))
+                } else {
+                    val eurAmount = targetAmountDelivered
+                    val pctAgentCostEur = eurAmount * pctAgentCostPercent / 100.0
+                    kotlin.math.round(pctAgentCostEur / marketRate)
+                }
             }
 
             val totalAgentCostBase = flatAgentCost + pctAgentCostBase
@@ -769,7 +819,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     flatAgentCost = flatAgentCostVal,
                     pctAgentCostPercent = pctAgentCostVal,
                     direction = state.transferDirection,
-                    isFeeInclusive = state.isFeeInclusive
+                    isFeeInclusive = state.isFeeInclusive,
+                    deductionBase = state.deductionBase
                 )
             }
             TransferMode.RECEIVE_TARGET -> {
@@ -782,7 +833,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     deliveryFee = deliveryFeeVal,
                     flatAgentCost = flatAgentCostVal,
                     pctAgentCostPercent = pctAgentCostVal,
-                    direction = state.transferDirection
+                    direction = state.transferDirection,
+                    deductionBase = state.deductionBase
                 )
             }
             TransferMode.CUSTOM_DEAL -> {
@@ -802,7 +854,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     marketRate = marketRateVal,
                     flatAgentCost = flatAgentCostVal,
                     pctAgentCostPercent = pctAgentCostVal,
-                    direction = state.transferDirection
+                    direction = state.transferDirection,
+                    deductionBase = state.deductionBase
                 )
             }
         }

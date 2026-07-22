@@ -227,7 +227,12 @@ class AppStrings(
     val feeExceedError: String,
     val invalidBaseError: String,
     val invalidRateError: String,
-    val rateWarningSpread: String
+    val rateWarningSpread: String,
+
+    // Deduction Base
+    val deductionBaseLabel: String,
+    val optionAOnReceived: String,
+    val optionBOnDelivered: String
 )
 
 val EnglishStrings = AppStrings(
@@ -280,7 +285,10 @@ val EnglishStrings = AppStrings(
     feeExceedError = "Total calculated fees exceed the principal amount.",
     invalidBaseError = "Please specify a valid financial principal (> 0).",
     invalidRateError = "Exchange rate must be positive and greater than zero.",
-    rateWarningSpread = "Warning: Customer rate exceeds market rate. Spread profit is negative."
+    rateWarningSpread = "Warning: Customer rate exceeds market rate. Spread profit is negative.",
+    deductionBaseLabel = "Office Cost Deduction Base",
+    optionAOnReceived = "On Received Amount (EUR)",
+    optionBOnDelivered = "On Delivered Target (USD)"
 )
 
 val ArabicStrings = AppStrings(
@@ -333,7 +341,10 @@ val ArabicStrings = AppStrings(
     feeExceedError = "تتجاوز الرسوم المقتطعة قيمة المبلغ الأساسي المرسل.",
     invalidBaseError = "يرجى تحديد مبلغ مالي صحيح أكبر من الصفر.",
     invalidRateError = "يجب أن يكون سعر الصرف المعتمد قيمة موجبة أكبر من الصفر.",
-    rateWarningSpread = "تنبيه: سعر العميل أعلى من سعر السوق المباشر. هامش الربح الخفي خاسر."
+    rateWarningSpread = "تنبيه: سعر العميل أعلى من سعر السوق المباشر. هامش الربح الخفي خاسر.",
+    deductionBaseLabel = "أساس أسلوب إعادة التنزيل",
+    optionAOnReceived = "على المبلغ المستلم (يورو)",
+    optionBOnDelivered = "على المبلغ الواصل (دولار)"
 )
 
 /**
@@ -582,7 +593,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.4.1",
+                        text = "v1.5.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -1127,6 +1138,57 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                                             unfocusedBorderColor = Color(0xFF475569)
                                         )
                                     )
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    Text(
+                                        text = strings.deductionBaseLabel,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFF94A3B8),
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(38.dp)
+                                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                                            .padding(3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (uiState.deductionBase == DeductionBase.ON_RECEIVED_BASE) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                .clickable { viewModel.onDeductionBaseChanged(DeductionBase.ON_RECEIVED_BASE) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = strings.optionAOnReceived,
+                                                color = if (uiState.deductionBase == DeductionBase.ON_RECEIVED_BASE) Color.White else Color(0xFF94A3B8),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (uiState.deductionBase == DeductionBase.ON_DELIVERED_TARGET) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                .clickable { viewModel.onDeductionBaseChanged(DeductionBase.ON_DELIVERED_TARGET) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = strings.optionBOnDelivered,
+                                                color = if (uiState.deductionBase == DeductionBase.ON_DELIVERED_TARGET) Color.White else Color(0xFF94A3B8),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
                                 }
 
                                 uiState.calculationResults?.let { results ->

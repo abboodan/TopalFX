@@ -4,6 +4,14 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.5.0] - 2026-07-22
+### Added
+- **Deduction Base Selection (أساس التنزيل)**: Toggle added in Admin Panel supporting Option A ("On Received Amount (EUR)") and Option B ("On Delivered Target (USD)").
+- **Office Cost Rounding**: Office percentage cost (`pctAgentCostBase`) is strictly rounded to whole numbers using `Math.round()`.
+- **Advanced Expense Ledger**: External delivery fees in base currency (`deliveryFee / marketRate`) are properly deducted from net profit.
+
+---
+
 ## [v1.4.1] - 2026-07-08
 ### Changed
 - Enlarge the centered application branding logo to 100.dp with rounded corners and a more prominent border.
