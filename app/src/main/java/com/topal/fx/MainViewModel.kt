@@ -20,7 +20,7 @@ import java.util.Locale
  * Supported Transfer Directions.
  */
 enum class TransferDirection {
-    EUR_TO_USD, USD_TO_EUR
+    EUR_TO_USD, USD_TO_EUR, EUR_TO_EUR, USD_TO_USD
 }
 
 /**
@@ -244,6 +244,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun fetchExchangeRateDirect(silent: Boolean) {
         val direction = _uiState.value.transferDirection
+        if (direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
+            _uiState.update {
+                it.copy(
+                    marketRate = "1.0000",
+                    customerRate = "1.0000",
+                    isFetchingRate = false,
+                    hasRateFetchError = false
+                )
+            }
+            return
+        }
+
         val from = if (direction == TransferDirection.EUR_TO_USD) "EUR" else "USD"
         val to = if (direction == TransferDirection.EUR_TO_USD) "USD" else "EUR"
 
@@ -584,7 +596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val totalAmountReceivedTarget = (targetAmountCust - deliveryFee).coerceAtLeast(0.0)
 
             // Percentage fee is calculated on the EUR amount (whether base or target)
-            val pctFeeBase = if (direction == TransferDirection.EUR_TO_USD) {
+            val pctFeeBase = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                 principal * pctFeePercent / 100.0
             } else {
                 val eurAmount = targetAmountCust
@@ -596,20 +608,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Hidden spread profit = Base Amount * (Market Rate - Customer Rate) / Market Rate
             val spreadProfitTarget = targetAmountMkt - targetAmountCust
-            val hiddenSpreadProfitBase = spreadProfitTarget / marketRate
+            val hiddenSpreadProfitBase = if (direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
+                0.0
+            } else {
+                spreadProfitTarget / marketRate
+            }
 
             val grossFeeProfitBase = flatFee + pctFeeBase
 
             // Agent Costs calculated based on selected Deduction Base and rounded to nearest whole number
             val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
-                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     targetAmountCust / marketRate
                 } else {
                     principal
                 }
                 kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                if (direction == TransferDirection.EUR_TO_USD) {
+                if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     kotlin.math.round(baseAmount * (pctAgentCostPercent / 100.0))
                 } else {
                     val eurAmount = targetAmountCust
@@ -618,7 +634,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD) deliveryFee / marketRate else deliveryFee
+            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) deliveryFee / marketRate else deliveryFee
             val totalAgentCostBase = flatAgentCost + pctAgentCostBase
             val totalProfitBase = grossFeeProfitBase + hiddenSpreadProfitBase
             val netProfitBase = totalProfitBase - totalAgentCostBase - deliveryFeeBase
@@ -661,7 +677,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val baseAmountMkt = targetAmountCust / marketRate
 
             // Percentage fee is calculated on the EUR amount
-            val pctFeeBase = if (direction == TransferDirection.EUR_TO_USD) {
+            val pctFeeBase = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                 baseAmount * pctFeePercent / 100.0
             } else {
                 val eurAmount = targetAmountCust
@@ -672,20 +688,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val totalAmountPaidBase = baseAmount + flatFee + pctFeeBase
 
             // Hidden spread profit = Base Amount Customer Pays - Base Amount Needed at Market Rate
-            val hiddenSpreadProfitBase = baseAmount - baseAmountMkt
+            val hiddenSpreadProfitBase = if (direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
+                0.0
+            } else {
+                baseAmount - baseAmountMkt
+            }
 
             val grossFeeProfitBase = flatFee + pctFeeBase
 
             // Agent Costs calculated based on selected Deduction Base and rounded to nearest whole number
             val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
-                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     targetAmount / marketRate
                 } else {
                     baseAmount
                 }
                 kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                if (direction == TransferDirection.EUR_TO_USD) {
+                if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     kotlin.math.round(baseAmount * (pctAgentCostPercent / 100.0))
                 } else {
                     val eurAmount = targetAmountCust
@@ -694,7 +714,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD) deliveryFee / marketRate else deliveryFee
+            val deliveryFeeBase = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) deliveryFee / marketRate else deliveryFee
             val totalAgentCostBase = flatAgentCost + pctAgentCostBase
             val totalProfitBase = grossFeeProfitBase + hiddenSpreadProfitBase
             val netProfitBase = totalProfitBase - totalAgentCostBase - deliveryFeeBase
@@ -729,14 +749,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Percentage agent cost calculated based on Deduction Base and rounded to nearest whole number
             val pctAgentCostBase = if (deductionBase == DeductionBase.ON_DELIVERED_TARGET) {
-                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD) {
+                val trueCostInEur = if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     targetAmountDelivered / marketRate
                 } else {
                     baseAmountReceived
                 }
                 kotlin.math.round(trueCostInEur * (pctAgentCostPercent / 100.0))
             } else {
-                if (direction == TransferDirection.EUR_TO_USD) {
+                if (direction == TransferDirection.EUR_TO_USD || direction == TransferDirection.EUR_TO_EUR || direction == TransferDirection.USD_TO_USD) {
                     kotlin.math.round(baseAmountReceived * (pctAgentCostPercent / 100.0))
                 } else {
                     val eurAmount = targetAmountDelivered

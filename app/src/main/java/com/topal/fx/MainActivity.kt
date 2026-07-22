@@ -232,7 +232,11 @@ class AppStrings(
     // Deduction Base
     val deductionBaseLabel: String,
     val optionAOnReceived: String,
-    val optionBOnDelivered: String
+    val optionBOnDelivered: String,
+
+    // Same Currency Directions
+    val directionEurToEur: String,
+    val directionUsdToUsd: String
 )
 
 val EnglishStrings = AppStrings(
@@ -288,7 +292,9 @@ val EnglishStrings = AppStrings(
     rateWarningSpread = "Warning: Customer rate exceeds market rate. Spread profit is negative.",
     deductionBaseLabel = "Office Cost Deduction Base",
     optionAOnReceived = "On Received Amount (EUR)",
-    optionBOnDelivered = "On Delivered Target (USD)"
+    optionBOnDelivered = "On Delivered Target (USD)",
+    directionEurToEur = "EUR ➔ EUR",
+    directionUsdToUsd = "USD ➔ USD"
 )
 
 val ArabicStrings = AppStrings(
@@ -344,7 +350,9 @@ val ArabicStrings = AppStrings(
     rateWarningSpread = "تنبيه: سعر العميل أعلى من سعر السوق المباشر. هامش الربح الخفي خاسر.",
     deductionBaseLabel = "أساس أسلوب إعادة التنزيل",
     optionAOnReceived = "على المبلغ المستلم (يورو)",
-    optionBOnDelivered = "على المبلغ الواصل (دولار)"
+    optionBOnDelivered = "على المبلغ الواصل (دولار)",
+    directionEurToEur = "يورو ← يورو",
+    directionUsdToUsd = "دولار ← دولار"
 )
 
 /**
@@ -523,8 +531,14 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
 
     var showSettingsDialog by remember { mutableStateOf(false) }
 
-    val baseCurrencyCode = if (uiState.transferDirection == TransferDirection.EUR_TO_USD) "EUR" else "USD"
-    val targetCurrencyCode = if (uiState.transferDirection == TransferDirection.EUR_TO_USD) "USD" else "EUR"
+    val baseCurrencyCode = when (uiState.transferDirection) {
+        TransferDirection.EUR_TO_USD, TransferDirection.EUR_TO_EUR -> "EUR"
+        TransferDirection.USD_TO_EUR, TransferDirection.USD_TO_USD -> "USD"
+    }
+    val targetCurrencyCode = when (uiState.transferDirection) {
+        TransferDirection.EUR_TO_USD, TransferDirection.USD_TO_USD -> "USD"
+        TransferDirection.USD_TO_EUR, TransferDirection.EUR_TO_EUR -> "EUR"
+    }
 
     CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
         Box(
@@ -593,7 +607,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.5.0",
+                        text = "v1.6.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -697,45 +711,92 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                             color = Color(0xFF94A3B8),
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (uiState.transferDirection == TransferDirection.EUR_TO_USD) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable { viewModel.onTransferDirectionChanged(TransferDirection.EUR_TO_USD) },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
+                                    .padding(3.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = strings.directionEurToUsd,
-                                    color = if (uiState.transferDirection == TransferDirection.EUR_TO_USD) Color.White else Color(0xFF94A3B8),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (uiState.transferDirection == TransferDirection.EUR_TO_USD) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { viewModel.onTransferDirectionChanged(TransferDirection.EUR_TO_USD) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = strings.directionEurToUsd,
+                                        color = if (uiState.transferDirection == TransferDirection.EUR_TO_USD) Color.White else Color(0xFF94A3B8),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (uiState.transferDirection == TransferDirection.USD_TO_EUR) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { viewModel.onTransferDirectionChanged(TransferDirection.USD_TO_EUR) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = strings.directionUsdToEur,
+                                        color = if (uiState.transferDirection == TransferDirection.USD_TO_EUR) Color.White else Color(0xFF94A3B8),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
-                            Box(
+
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (uiState.transferDirection == TransferDirection.USD_TO_EUR) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable { viewModel.onTransferDirectionChanged(TransferDirection.USD_TO_EUR) },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
+                                    .padding(3.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = strings.directionUsdToEur,
-                                    color = if (uiState.transferDirection == TransferDirection.USD_TO_EUR) Color.White else Color(0xFF94A3B8),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (uiState.transferDirection == TransferDirection.EUR_TO_EUR) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { viewModel.onTransferDirectionChanged(TransferDirection.EUR_TO_EUR) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = strings.directionEurToEur,
+                                        color = if (uiState.transferDirection == TransferDirection.EUR_TO_EUR) Color.White else Color(0xFF94A3B8),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (uiState.transferDirection == TransferDirection.USD_TO_USD) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { viewModel.onTransferDirectionChanged(TransferDirection.USD_TO_USD) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = strings.directionUsdToUsd,
+                                        color = if (uiState.transferDirection == TransferDirection.USD_TO_USD) Color.White else Color(0xFF94A3B8),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
                         }
 

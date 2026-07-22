@@ -12,8 +12,16 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
-## [v1.4.1] - 2026-07-08
-### Changed
+## [v1.6.0] - 2026-07-22
+### Added
+- **Same-Currency Remittances (EUR ➔ EUR & USD ➔ USD)**: Added support for transfers within the same currency (e.g., EUR to EUR or USD to USD).
+- **Static Exchange Rate Lock**: Automatically locks market and customer rates to `1.0000` for same-currency transfers.
+- **4-Way Transfer Direction Selector**: Expanded transfer direction controls to toggle seamlessly between EUR->USD, USD->EUR, EUR->EUR, and USD->USD.
+
+---
+
+## [v1.5.0] - 2026-07-22
+### Added
 - Enlarge the centered application branding logo to 100.dp with rounded corners and a more prominent border.
 
 ---
