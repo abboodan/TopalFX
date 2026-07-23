@@ -125,7 +125,7 @@ data class CalculatorUiState(
     val isFeeInclusive: Boolean = false,
     
     // Auto-Update States
-    val updateUrl: String = "https://fx.topal.uk/version.json",
+    val updateUrl: String = "https://api.github.com/repos/abboodan/TopalFX/releases/latest",
     val appUpdateInfo: AppUpdateInfo? = null,
     val showUpdateDialog: Boolean = false,
     val isCheckingUpdate: Boolean = false,
@@ -164,7 +164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val defaultCustomerFee = sharedPrefs.getString("default_customer_fee", "") ?: ""
         val defaultDeliveryFee = sharedPrefs.getString("default_delivery_fee", "") ?: ""
         val defaultOfficePercentage = sharedPrefs.getString("default_office_percentage", "") ?: ""
-        val savedUpdateUrl = sharedPrefs.getString("update_url", "https://fx.topal.uk/version.json") ?: "https://fx.topal.uk/version.json"
+        val savedUpdateUrl = sharedPrefs.getString("update_url", "https://api.github.com/repos/abboodan/TopalFX/releases/latest") ?: "https://api.github.com/repos/abboodan/TopalFX/releases/latest"
         
         _uiState.update {
             it.copy(

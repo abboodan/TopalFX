@@ -30,7 +30,7 @@ data class AppUpdateInfo(
 object UpdateManager {
 
     /**
-     * Safely fetches remote version.json info without crashing if offline or network fails.
+     * Safely fetches remote version info (supports both GitHub Releases API and custom version.json).
      */
     suspend fun fetchUpdateInfo(updateUrl: String): AppUpdateInfo? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
@@ -38,12 +38,53 @@ object UpdateManager {
             val url = URL(updateUrl)
             connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 4000
-            connection.readTimeout = 4000
+            connection.readTimeout = 5000
             connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", "TopalFX-Android")
 
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(jsonString)
+
+                // 1. Check if response is from GitHub Releases API
+                if (json.has("tag_name") && json.has("assets")) {
+                    val tagName = json.optString("tag_name", "").replace("v", "")
+                    val changelog = json.optString("body", "")
+                    val assets = json.optJSONArray("assets")
+                    var downloadUrl = ""
+
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.optString("name", "")
+                            if (name.endsWith(".apk")) {
+                                downloadUrl = asset.optString("browser_download_url", "")
+                                break
+                            }
+                        }
+                    }
+
+                    // Convert tag_name like "1.8.0" to versionCode (e.g., 1.8.0 -> 9, or parse major.minor.patch)
+                    val parts = tagName.split(".")
+                    var derivedVersionCode = 0
+                    if (parts.size >= 2) {
+                        val major = parts.getOrNull(0)?.toIntOrNull() ?: 1
+                        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+                        derivedVersionCode = (major * 100) + (minor * 10) + patch
+                    }
+
+                    if (downloadUrl.isNotEmpty()) {
+                        return@withContext AppUpdateInfo(
+                            versionCode = if (derivedVersionCode > 0) derivedVersionCode else 999,
+                            versionName = tagName,
+                            apkUrl = downloadUrl,
+                            changelog = changelog
+                        )
+                    }
+                }
+
+                // 2. Custom version.json format
                 val versionCode = json.optInt("versionCode", 0)
                 val versionName = json.optString("versionName", "")
                 val apkUrl = json.optString("apkUrl", "")
