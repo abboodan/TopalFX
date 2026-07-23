@@ -22,10 +22,15 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("topalfx.jks")
-            storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as String?
-            keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as String?
-            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as String?
+            val keystoreFile = file("topalfx.jks")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = (project.findProperty("RELEASE_STORE_PASSWORD") as String?) ?: "TopalFXPro2026!"
+                keyAlias = (project.findProperty("RELEASE_KEY_ALIAS") as String?) ?: "topalfx_key"
+                keyPassword = (project.findProperty("RELEASE_KEY_PASSWORD") as String?) ?: "TopalFXPro2026!"
+            } else {
+                initWith(getByName("debug"))
+            }
         }
     }
 

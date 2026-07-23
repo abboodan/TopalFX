@@ -14,10 +14,5 @@ captures/
 # User-specific local properties
 local.properties
 
-# Signing credentials
-*.jks
-*.keystore
-gradle.properties
-
 # Log files
 *.log
