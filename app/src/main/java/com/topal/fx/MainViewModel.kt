@@ -556,8 +556,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val url = _uiState.value.updateUrl
             val info = UpdateManager.fetchUpdateInfo(url)
             
-            val currentVersionCode = 8 // For v1.7.0
-            if (info != null && info.versionCode > currentVersionCode) {
+            val context = getApplication<Application>().applicationContext
+            val (installedVersionCode, installedVersionName) = try {
+                val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val code = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pInfo.longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    pInfo.versionCode
+                }
+                Pair(code, pInfo.versionName ?: "")
+            } catch (e: Exception) {
+                Pair(9, "1.8.0")
+            }
+
+            val isNewer = if (info != null) {
+                val remoteNameClean = info.versionName.replace("v", "").trim()
+                val installedNameClean = installedVersionName.replace("v", "").trim()
+                
+                if (remoteNameClean.isNotEmpty() && installedNameClean.isNotEmpty()) {
+                    remoteNameClean != installedNameClean && isVersionNameGreater(remoteNameClean, installedNameClean)
+                } else {
+                    info.versionCode > installedVersionCode
+                }
+            } else false
+
+            if (info != null && isNewer) {
                 _uiState.update { 
                     it.copy(
                         appUpdateInfo = info,
@@ -574,6 +598,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun isVersionNameGreater(remote: String, installed: String): Boolean {
+        val rParts = remote.split(".").mapNotNull { it.toIntOrNull() }
+        val iParts = installed.split(".").mapNotNull { it.toIntOrNull() }
+        for (i in 0 until maxOf(rParts.size, iParts.size)) {
+            val r = rParts.getOrElse(i) { 0 }
+            val inst = iParts.getOrElse(i) { 0 }
+            if (r > inst) return true
+            if (r < inst) return false
+        }
+        return false
     }
 
     fun startDownloadAndUpdate(context: Context) {

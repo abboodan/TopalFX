@@ -4,9 +4,16 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.8.0] - 2026-07-23
+### Added
+- **Dynamic Version Comparison**: Dynamically query installed app `versionCode` and `versionName` to prevent infinite update loop popups.
+- **GitHub Releases Native Integration**: Automatically parse GitHub Release tags (`v1.8.0`) and assets directly.
+
+---
+
 ## [v1.7.0] - 2026-07-23
 ### Added
-- **Self-Hosted In-App Auto-Updater**: Direct in-app update engine fetching version updates from `https://fx.topal.uk/version.json`.
+- **Self-Hosted In-App Auto-Updater**: Direct in-app update engine fetching version updates from GitHub Releases API.
 - **Offline & Network Fallback**: Graceful handling of network timeouts or offline states without app disruption or crashes.
 - **Dedicated Settings Update Section**: Added update configuration, current version display, and manual update trigger inside Settings Dialog.
 - **Android FileProvider Installer**: Seamless package download and native installer launch with FileProvider security.

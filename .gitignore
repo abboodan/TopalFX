@@ -14,5 +14,7 @@ captures/
 # User-specific local properties
 local.properties
 
-# Log files
+# Log files & zips
 *.log
+logs_*
+*.zip
