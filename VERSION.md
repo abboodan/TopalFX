@@ -4,7 +4,16 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
-## [v1.5.0] - 2026-07-22
+## [v1.7.0] - 2026-07-23
+### Added
+- **Self-Hosted In-App Auto-Updater**: Direct in-app update engine fetching version updates from `https://fx.topal.uk/version.json`.
+- **Offline & Network Fallback**: Graceful handling of network timeouts or offline states without app disruption or crashes.
+- **Dedicated Settings Update Section**: Added update configuration, current version display, and manual update trigger inside Settings Dialog.
+- **Android FileProvider Installer**: Seamless package download and native installer launch with FileProvider security.
+
+---
+
+## [v1.6.0] - 2026-07-22
 ### Added
 - **Deduction Base Selection (أساس التنزيل)**: Toggle added in Admin Panel supporting Option A ("On Received Amount (EUR)") and Option B ("On Delivered Target (USD)").
 - **Office Cost Rounding**: Office percentage cost (`pctAgentCostBase`) is strictly rounded to whole numbers using `Math.round()`.

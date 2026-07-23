@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.topal.fx.api.RetrofitClient
+import com.topal.fx.updater.AppUpdateInfo
+import com.topal.fx.updater.UpdateManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -120,7 +122,16 @@ data class CalculatorUiState(
     
     val tickerRates: List<CurrencyRate> = emptyList(),
     val isFetchingTicker: Boolean = false,
-    val isFeeInclusive: Boolean = false
+    val isFeeInclusive: Boolean = false,
+    
+    // Auto-Update States
+    val updateUrl: String = "https://fx.topal.uk/version.json",
+    val appUpdateInfo: AppUpdateInfo? = null,
+    val showUpdateDialog: Boolean = false,
+    val isCheckingUpdate: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val downloadProgress: Float = 0f,
+    val updateErrorMessage: String? = null
 )
 
 /**
@@ -143,6 +154,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         fetchExchangeRateDirect(silent = false)
         fetchTickerRates()
         startAutoUpdateTicker()
+        checkForUpdates(silent = true)
     }
 
     /**
@@ -152,12 +164,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val defaultCustomerFee = sharedPrefs.getString("default_customer_fee", "") ?: ""
         val defaultDeliveryFee = sharedPrefs.getString("default_delivery_fee", "") ?: ""
         val defaultOfficePercentage = sharedPrefs.getString("default_office_percentage", "") ?: ""
+        val savedUpdateUrl = sharedPrefs.getString("update_url", "https://fx.topal.uk/version.json") ?: "https://fx.topal.uk/version.json"
         
         _uiState.update {
             it.copy(
                 pctFee = defaultCustomerFee,
                 deliveryFee = defaultDeliveryFee,
-                pctAgentCost = defaultOfficePercentage
+                pctAgentCost = defaultOfficePercentage,
+                updateUrl = savedUpdateUrl
             )
         }
     }
@@ -523,6 +537,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 deductionBase = base,
                 calculationResults = null,
                 calculationError = CalculationError.NONE
+            )
+        }
+    }
+
+    fun onUpdateUrlChanged(newUrl: String) {
+        sharedPrefs.edit().putString("update_url", newUrl).apply()
+        _uiState.update { it.copy(updateUrl = newUrl) }
+    }
+
+    fun dismissUpdateDialog() {
+        _uiState.update { it.copy(showUpdateDialog = false, updateErrorMessage = null) }
+    }
+
+    fun checkForUpdates(silent: Boolean = false) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null) }
+            val url = _uiState.value.updateUrl
+            val info = UpdateManager.fetchUpdateInfo(url)
+            
+            val currentVersionCode = 8 // For v1.7.0
+            if (info != null && info.versionCode > currentVersionCode) {
+                _uiState.update { 
+                    it.copy(
+                        appUpdateInfo = info,
+                        showUpdateDialog = true,
+                        isCheckingUpdate = false
+                    )
+                }
+            } else {
+                _uiState.update { 
+                    it.copy(
+                        isCheckingUpdate = false,
+                        updateErrorMessage = if (!silent && info == null) "فشل الاتصال بسيرفر التحديثات أو لا توجد تحديثات جديدة حالياً" else null
+                    )
+                }
+            }
+        }
+    }
+
+    fun startDownloadAndUpdate(context: Context) {
+        val info = _uiState.value.appUpdateInfo ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDownloadingUpdate = true, downloadProgress = 0f, updateErrorMessage = null) }
+            UpdateManager.downloadAndInstall(
+                context = context,
+                apkUrl = info.apkUrl,
+                onProgress = { progress ->
+                    _uiState.update { it.copy(downloadProgress = progress) }
+                },
+                onComplete = {
+                    _uiState.update { it.copy(isDownloadingUpdate = false, showUpdateDialog = false) }
+                },
+                onError = { error ->
+                    _uiState.update { it.copy(isDownloadingUpdate = false, updateErrorMessage = error) }
+                }
             )
         }
     }

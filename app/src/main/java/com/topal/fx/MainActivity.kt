@@ -236,7 +236,16 @@ class AppStrings(
 
     // Same Currency Directions
     val directionEurToEur: String,
-    val directionUsdToUsd: String
+    val directionUsdToUsd: String,
+
+    // Auto-Updater
+    val updatesSectionTitle: String,
+    val checkForUpdatesButton: String,
+    val updateServerUrlLabel: String,
+    val updateAvailableTitle: String,
+    val updateNowButton: String,
+    val remindMeLaterButton: String,
+    val downloadingUpdateLabel: String
 )
 
 val EnglishStrings = AppStrings(
@@ -294,7 +303,14 @@ val EnglishStrings = AppStrings(
     optionAOnReceived = "On Received Amount (EUR)",
     optionBOnDelivered = "On Delivered Target (USD)",
     directionEurToEur = "EUR ➔ EUR",
-    directionUsdToUsd = "USD ➔ USD"
+    directionUsdToUsd = "USD ➔ USD",
+    updatesSectionTitle = "App Updates & Server Sync",
+    checkForUpdatesButton = "Check Updates",
+    updateServerUrlLabel = "Update Server JSON Endpoint",
+    updateAvailableTitle = "New Update Available!",
+    updateNowButton = "Update Now",
+    remindMeLaterButton = "Remind Me Later",
+    downloadingUpdateLabel = "Downloading update package..."
 )
 
 val ArabicStrings = AppStrings(
@@ -352,7 +368,14 @@ val ArabicStrings = AppStrings(
     optionAOnReceived = "على المبلغ المستلم (يورو)",
     optionBOnDelivered = "على المبلغ الواصل (دولار)",
     directionEurToEur = "يورو ← يورو",
-    directionUsdToUsd = "دولار ← دولار"
+    directionUsdToUsd = "دولار ← دولار",
+    updatesSectionTitle = "تحديثات التطبيق وسيرفر المزامنة",
+    checkForUpdatesButton = "فحص التحديثات الآن",
+    updateServerUrlLabel = "رابط ملف سيرفر التحديثات (JSON)",
+    updateAvailableTitle = "تحديث جديد متاح!",
+    updateNowButton = "تحديث الآن",
+    remindMeLaterButton = "تذكيري لاحقاً",
+    downloadingUpdateLabel = "جاري تنزيل ملف التحديث..."
 )
 
 /**
@@ -607,7 +630,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.6.0",
+                        text = "v1.7.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -1708,6 +1731,62 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                             Text(strings.addPairButton, fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 12.dp))
+
+                    Text(
+                        text = strings.updatesSectionTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    OutlinedTextField(
+                        value = uiState.updateUrl,
+                        onValueChange = { viewModel.onUpdateUrlChanged(it) },
+                        label = { Text(strings.updateServerUrlLabel) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color(0xFF475569)
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (uiState.language == Language.AR) "الإصدار الحالي: v1.7.0" else "Current Version: v1.7.0",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Button(
+                            onClick = { viewModel.checkForUpdates(silent = false) },
+                            enabled = !uiState.isCheckingUpdate,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            if (uiState.isCheckingUpdate) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text(strings.checkForUpdatesButton, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    if (uiState.updateErrorMessage != null) {
+                        Text(
+                            text = uiState.updateErrorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -1732,6 +1811,92 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF94A3B8))
                 ) {
                     Text(strings.cancelButton)
+                }
+            },
+            containerColor = Color(0xFF1E293B),
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Auto-Update Available Dialog
+    if (uiState.showUpdateDialog && uiState.appUpdateInfo != null) {
+        val info = uiState.appUpdateInfo!!
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUpdateDialog() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "${strings.updateAvailableTitle} (${info.versionName})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (info.changelog.isNotEmpty()) {
+                        Text(
+                            text = if (uiState.language == Language.AR) "التغييرات في هذا الإصدار:" else "Changelog:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Text(
+                            text = info.changelog,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White
+                        )
+                    }
+
+                    if (uiState.isDownloadingUpdate) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${strings.downloadingUpdateLabel} ${(uiState.downloadProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        LinearProgressIndicator(
+                            progress = uiState.downloadProgress,
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color(0xFF334155)
+                        )
+                    }
+
+                    if (uiState.updateErrorMessage != null) {
+                        Text(
+                            text = uiState.updateErrorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.startDownloadAndUpdate(context) },
+                    enabled = !uiState.isDownloadingUpdate,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text(strings.updateNowButton, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissUpdateDialog() },
+                    enabled = !uiState.isDownloadingUpdate
+                ) {
+                    Text(strings.remindMeLaterButton, color = Color(0xFF94A3B8))
                 }
             },
             containerColor = Color(0xFF1E293B),
