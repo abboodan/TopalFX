@@ -44,6 +44,16 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Percent
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -245,7 +255,15 @@ class AppStrings(
     val updateAvailableTitle: String,
     val updateNowButton: String,
     val remindMeLaterButton: String,
-    val downloadingUpdateLabel: String
+    val downloadingUpdateLabel: String,
+
+    // Real-time Notification Forwarder
+    val notificationRelaySectionTitle: String,
+    val notificationPermissionLabel: String,
+    val batteryOptimizationLabel: String,
+    val statusEnabled: String,
+    val statusDisabled: String,
+    val enableButton: String
 )
 
 val EnglishStrings = AppStrings(
@@ -310,7 +328,13 @@ val EnglishStrings = AppStrings(
     updateAvailableTitle = "New Update Available!",
     updateNowButton = "Update Now",
     remindMeLaterButton = "Remind Me Later",
-    downloadingUpdateLabel = "Downloading update package..."
+    downloadingUpdateLabel = "Downloading update package...",
+    notificationRelaySectionTitle = "Real-time Notifications & Telegram Relay",
+    notificationPermissionLabel = "Real-time Price & FX Notifications",
+    batteryOptimizationLabel = "Battery Exemption for Instant Sync",
+    statusEnabled = "Enabled",
+    statusDisabled = "Disabled",
+    enableButton = "Activate"
 )
 
 val ArabicStrings = AppStrings(
@@ -375,8 +399,31 @@ val ArabicStrings = AppStrings(
     updateAvailableTitle = "تحديث جديد متاح!",
     updateNowButton = "تحديث الآن",
     remindMeLaterButton = "تذكيري لاحقاً",
-    downloadingUpdateLabel = "جاري تنزيل ملف التحديث..."
+    downloadingUpdateLabel = "جاري تنزيل ملف التحديث...",
+    notificationRelaySectionTitle = "توجيه إشعارات الصرف الفورية",
+    notificationPermissionLabel = "إشعارات الأسعار والصرف اللحظي",
+    batteryOptimizationLabel = "استثناء قيود البطارية للتحديث اللحظي",
+    statusEnabled = "مفعل",
+    statusDisabled = "غير مفعل",
+    enableButton = "تفعيل"
 )
+
+/**
+ * Checks if the notification listener permission is granted for this app.
+ */
+fun isNotificationListenerEnabled(context: Context): Boolean {
+    val pkgName = context.packageName
+    val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+    return flat?.contains(pkgName) == true
+}
+
+/**
+ * Checks if battery optimization is disabled for this app to ensure 24/7 background operation.
+ */
+fun isBatteryOptimizationIgnored(context: Context): Boolean {
+    val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    return pm?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+}
 
 /**
  * Helper to format rates based on magnitude.
@@ -630,7 +677,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.8.0",
+                        text = "v1.9.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -1536,6 +1583,23 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
         var customFrom by remember { mutableStateOf("") }
         var customTo by remember { mutableStateOf("") }
 
+        val lifecycleOwner = LocalLifecycleOwner.current
+        var isNotificationPermGranted by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
+        var isBatteryOptIgnored by remember { mutableStateOf(isBatteryOptimizationIgnored(context)) }
+
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    isNotificationPermGranted = isNotificationListenerEnabled(context)
+                    isBatteryOptIgnored = isBatteryOptimizationIgnored(context)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             title = {
@@ -1735,6 +1799,119 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 12.dp))
 
                     Text(
+                        text = strings.notificationRelaySectionTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    // 1. Notification Permission Status Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A).copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.notificationPermissionLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isNotificationPermGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                    contentDescription = null,
+                                    tint = if (isNotificationPermGranted) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isNotificationPermGranted) strings.statusEnabled else strings.statusDisabled,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isNotificationPermGranted) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        if (!isNotificationPermGranted) {
+                            Button(
+                                onClick = {
+                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(strings.enableButton, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // 2. Battery Optimization Exemption Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A).copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.batteryOptimizationLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isBatteryOptIgnored) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                    contentDescription = null,
+                                    tint = if (isBatteryOptIgnored) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isBatteryOptIgnored) strings.statusEnabled else strings.statusDisabled,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isBatteryOptIgnored) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        if (!isBatteryOptIgnored) {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(strings.enableButton, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 12.dp))
+
+                    Text(
                         text = strings.updatesSectionTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -1759,7 +1936,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (uiState.language == Language.AR) "الإصدار الحالي: v1.8.0" else "Current Version: v1.8.0",
+                            text = if (uiState.language == Language.AR) "الإصدار الحالي: v1.9.0" else "Current Version: v1.9.0",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF94A3B8)
                         )

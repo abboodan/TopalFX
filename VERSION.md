@@ -4,6 +4,14 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.9.0] - 2026-09-15
+### Added
+- **Real-Time Telegram Notification Forwarder**: Integrated lightweight background `NotificationListenerService` that intercepts incoming remittances/rate notifications and forwards them instantly to Telegram via a dedicated Bot.
+- **Battery Optimization & 24/7 Background Exemption**: Added direct controls in Settings to exempt the app from battery restrictions for non-stop operation even when phone is locked.
+- **Diagnostic Settings Dashboard**: Clean permission indicators with single-tap activation for "إشعارات الأسعار والصرف اللحظي" and "استثناء قيود البطارية للتحديث اللحظي".
+
+---
+
 ## [v1.8.0] - 2026-07-23
 ### Added
 - **Dynamic Version Comparison**: Dynamically query installed app `versionCode` and `versionName` to prevent infinite update loop popups.
