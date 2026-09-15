@@ -18,7 +18,6 @@ import java.util.Locale
  */
 class NotificationForwarderService : NotificationListenerService() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -26,8 +25,17 @@ class NotificationForwarderService : NotificationListenerService() {
 
         val pkgName = sbn.packageName ?: return
 
-        // Ignore notifications posted by our own app to avoid loops
+        // 1. Ignore persistent/ongoing notifications (e.g. charging status, USB connected, active downloads)
+        if (sbn.isOngoing) return
+
+        // 2. Ignore notifications posted by our own app
         if (pkgName == packageName) return
+
+        // 3. Ignore Telegram notifications to avoid recursive forwarding loops
+        if (pkgName.contains("telegram", ignoreCase = true)) return
+
+        // 4. Ignore Android core system and Google Play services noise
+        if (pkgName == "android" || pkgName == "com.android.systemui" || pkgName == "com.google.android.gms") return
 
         val extras = sbn.notification?.extras ?: return
 
@@ -63,8 +71,6 @@ class NotificationForwarderService : NotificationListenerService() {
             append("🚀 عبر TopalFX Pro Gateway")
         }
 
-        serviceScope.launch {
-            TelegramConfig.sendMessage(formattedMessage)
-        }
+        TelegramConfig.enqueueNotification(appName, title, text, formattedMessage)
     }
 }

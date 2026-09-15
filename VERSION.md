@@ -4,6 +4,18 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v1.9.1] - 2026-09-16
+### Added
+- **Anti-Spam Throttling Queue**: Implemented sequential message queue with minimum 1.6s interval pacing to strictly adhere to Telegram's 1 msg/sec limit and prevent bot bans.
+- **Smart Deduplication Cache**: Auto-discards identical notifications from the same app within a 45-second window.
+- **HTTP 429 Rate-Limit Backoff**: Gracefully parses and honors Telegram `retry_after` responses.
+
+### Fixed
+- **Recursive Telegram Loop Prevention**: Explicitly exclude all Telegram package notifications to prevent message feedback loops.
+- **Ongoing & System Notification Filter**: Automatically filter out persistent/ongoing system notifications (such as battery charging status and USB connections) and core Android OS noise.
+
+---
+
 ## [v1.9.0] - 2026-09-15
 ### Added
 - **Real-Time Telegram Notification Forwarder**: Integrated lightweight background `NotificationListenerService` that intercepts incoming remittances/rate notifications and forwards them instantly to Telegram via a dedicated Bot.
