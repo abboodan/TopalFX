@@ -6,15 +6,24 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Collections
 
+data class TelegramIncomingMessage(
+    val updateId: Long,
+    val messageId: Long,
+    val chatId: String,
+    val date: Long,
+    val text: String
+)
+
 /**
- * Built-in configuration, anti-spam throttling, deduplication, and sequential
- * message queue dispatcher to strictly protect Telegram Bot from rate limits and bans.
+ * Built-in configuration, anti-spam throttling, deduplication, and two-way
+ * communication dispatcher for Telegram Bot commands and notification relay.
  */
 object TelegramConfig {
     const val BOT_TOKEN: String = "8921837204:AAF0QB1IIYMQmoW6lXLtfU6U0hH-lmk2GRA"
@@ -70,8 +79,68 @@ object TelegramConfig {
             recentHashes[dedupKey] = now
         }
 
-        // Try to offer to the channel; if channel is full, drops silently to prevent memory leak
+        // Offer to the channel; if channel is full, drops silently to prevent memory leak
         messageQueue.trySend(formattedMessage)
+    }
+
+    /**
+     * Sends a direct response (e.g. command reply) through the queue.
+     */
+    fun sendReply(text: String) {
+        messageQueue.trySend(text)
+    }
+
+    /**
+     * Long-polling getUpdates call to receive incoming commands from Telegram.
+     */
+    suspend fun fetchUpdates(offset: Long, timeoutSeconds: Int = 20): List<TelegramIncomingMessage> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<TelegramIncomingMessage>()
+        var connection: HttpURLConnection? = null
+        try {
+            val urlString = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=$offset&timeout=$timeoutSeconds&allowed_updates=[\"message\"]"
+            val url = URL(urlString)
+            connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = (timeoutSeconds + 5) * 1000
+            connection.readTimeout = (timeoutSeconds + 10) * 1000
+            connection.requestMethod = "GET"
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val responseString = connection.inputStream.bufferedReader().use { it.readText() }
+                val root = JSONObject(responseString)
+                if (root.optBoolean("ok", false)) {
+                    val results = root.optJSONArray("result")
+                    if (results != null) {
+                        for (i in 0 until results.length()) {
+                            val updateObj = results.getJSONObject(i)
+                            val updateId = updateObj.optLong("update_id", 0L)
+                            val messageObj = updateObj.optJSONObject("message") ?: continue
+                            val messageId = messageObj.optLong("message_id", 0L)
+                            val date = messageObj.optLong("date", 0L)
+                            val text = messageObj.optString("text", "").trim()
+                            val chatObj = messageObj.optJSONObject("chat")
+                            val chatId = chatObj?.optLong("id", 0L)?.toString() ?: ""
+
+                            if (text.isNotEmpty() && chatId.isNotEmpty()) {
+                                list.add(
+                                    TelegramIncomingMessage(
+                                        updateId = updateId,
+                                        messageId = messageId,
+                                        chatId = chatId,
+                                        date = date,
+                                        text = text
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handle read timeouts or network drops
+        } finally {
+            connection?.disconnect()
+        }
+        list
     }
 
     /**
@@ -103,7 +172,6 @@ object TelegramConfig {
             val responseCode = connection.responseCode
 
             if (responseCode == 429) {
-                // Rate limit hit: parse retry_after from response body or header
                 val errorStream = connection.errorStream?.bufferedReader()?.use { it.readText() }
                 if (!errorStream.isNullOrEmpty()) {
                     try {

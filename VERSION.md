@@ -4,6 +4,15 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v2.0.0] - 2026-09-16
+### Added
+- **Two-Way Telegram Bot Remote Control**: Control the notification interceptor remotely using Telegram commands (`/status`, `/pause`, `/resume`, `/ignore <app>`, `/unignore <app>`, `/list_ignored`, `/history [n]`, `/help`).
+- **Persistent SQLite Notification Log**: Complete local audit trail (`NotificationDbHelper`) storing all captured notifications in native SQLite (`topalfx_notifications.db`) with timestamps, app names, packages, and forward status.
+- **Persistent Settings Configuration**: Automatically save and restore paused state, custom ignored application lists, and Telegram update offsets using `TelegramConfigManager`.
+- **Offline & Stale Command Recovery**: Guaranteed chronological order execution for queued commands after power or network loss via offset tracking, with automatic detection and notification for stale commands (> 2 hours old).
+
+---
+
 ## [v1.9.1] - 2026-09-16
 ### Added
 - **Anti-Spam Throttling Queue**: Implemented sequential message queue with minimum 1.6s interval pacing to strictly adhere to Telegram's 1 msg/sec limit and prevent bot bans.

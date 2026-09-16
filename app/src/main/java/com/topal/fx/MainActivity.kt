@@ -677,7 +677,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "v1.9.1",
+                        text = "v2.0.0",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF64748B)
                     )
@@ -1936,7 +1936,7 @@ fun RemittanceCalculatorScreen(viewModel: MainViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (uiState.language == Language.AR) "الإصدار الحالي: v1.9.1" else "Current Version: v1.9.1",
+                            text = if (uiState.language == Language.AR) "الإصدار الحالي: v2.0.0" else "Current Version: v2.0.0",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF94A3B8)
                         )
