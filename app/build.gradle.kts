@@ -1,7 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+val telegramBotToken: String = (project.findProperty("TELEGRAM_BOT_TOKEN") as String?)
+    ?: System.getenv("TELEGRAM_BOT_TOKEN")
+    ?: localProperties.getProperty("TELEGRAM_BOT_TOKEN")
+    ?: ""
+
+val telegramChatId: String = (project.findProperty("TELEGRAM_CHAT_ID") as String?)
+    ?: System.getenv("TELEGRAM_CHAT_ID")
+    ?: localProperties.getProperty("TELEGRAM_CHAT_ID")
+    ?: "969346296"
 
 android {
     namespace = "com.topal.fx"
@@ -11,8 +30,11 @@ android {
         applicationId = "com.topal.fx"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "2.1.0"
+        versionCode = 14
+        versionName = "2.1.1"
+
+        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"$telegramBotToken\"")
+        buildConfigField("String", "TELEGRAM_CHAT_ID", "\"$telegramChatId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -53,6 +75,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"

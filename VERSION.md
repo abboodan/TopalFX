@@ -4,6 +4,12 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v2.1.1] - 2026-10-13
+### Security
+- **Secure Token Protection via BuildConfig & Secrets**: Completely sanitized codebase to eliminate hardcoded credentials. Telegram Bot Token is now loaded securely from local untracked properties (`local.properties`) during local compilation and injected via `BuildConfig.TELEGRAM_BOT_TOKEN`, with encrypted GitHub Secrets integration for CI/CD builds.
+
+---
+
 ## [v2.1.0] - 2026-10-12
 ### Added
 - **Offline Storage & Automatic Reconnection Sync**: Eligible intercepted notifications are immediately recorded locally in SQLite with `STATUS_PENDING`. When network connectivity (Wi-Fi or Mobile Data) is restored, the service automatically detects internet availability and flushes all pending notifications to Telegram sequentially with a `(⏰ تم الإرسال بعد استعادة الاتصال)` timestamp note.

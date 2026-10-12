@@ -31,8 +31,8 @@ data class QueuedMessage(
  * communication dispatcher for Telegram Bot commands and notification relay.
  */
 object TelegramConfig {
-    const val BOT_TOKEN: String = "8921837204:AAF0QB1IIYMQmoW6lXLtfU6U0hH-lmk2GRA"
-    const val CHAT_ID: String = "969346296"
+    val BOT_TOKEN: String = com.topal.fx.BuildConfig.TELEGRAM_BOT_TOKEN
+    val CHAT_ID: String = com.topal.fx.BuildConfig.TELEGRAM_CHAT_ID
 
     // Safe delay between consecutive messages to respect Telegram's 1 msg/sec limit
     private const val MIN_INTERVAL_MS = 1600L
