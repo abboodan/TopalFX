@@ -14,11 +14,14 @@ data class NotificationRecord(
     val content: String,
     val timestamp: Long,
     val dateStr: String,
-    val isForwarded: Boolean
-)
+    val status: Int
+) {
+    val isForwarded: Boolean get() = status == NotificationDbHelper.STATUS_SENT
+}
 
 /**
- * Native lightweight SQLite helper to store and retrieve intercepted notifications.
+ * Native lightweight SQLite helper to store and retrieve intercepted notifications,
+ * supporting offline pending queues, automatic status transitions, and data pruning.
  */
 class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
@@ -35,6 +38,11 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
         const val COL_TIMESTAMP = "timestamp"
         const val COL_DATE_STR = "date_str"
         const val COL_FORWARDED = "is_forwarded"
+
+        // Status definitions
+        const val STATUS_PENDING = 0 // Stored locally, waiting to be dispatched to Telegram
+        const val STATUS_SENT = 1    // Successfully delivered and acknowledged by Telegram
+        const val STATUS_IGNORED = 2 // Filtered/paused (stored for audit only, do not forward)
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -59,7 +67,8 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
     }
 
     /**
-     * Inserts an intercepted notification into the database.
+     * Inserts an intercepted notification into the database with specific delivery status.
+     * Returns newly generated row ID.
      */
     fun insertNotification(
         packageName: String,
@@ -68,7 +77,7 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
         content: String,
         timestamp: Long,
         dateStr: String,
-        isForwarded: Boolean
+        status: Int = STATUS_PENDING
     ): Long {
         return try {
             val db = writableDatabase
@@ -79,9 +88,14 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                 put(COL_CONTENT, content)
                 put(COL_TIMESTAMP, timestamp)
                 put(COL_DATE_STR, dateStr)
-                put(COL_FORWARDED, if (isForwarded) 1 else 0)
+                put(COL_FORWARDED, status)
             }
-            db.insert(TABLE_NAME, null, values)
+            val id = db.insert(TABLE_NAME, null, values)
+            // Silently prune excess rows periodically if table grows very large
+            if (id > 0 && id % 100 == 0L) {
+                pruneOldRecords(5000)
+            }
+            id
         } catch (e: Exception) {
             e.printStackTrace()
             -1L
@@ -89,7 +103,52 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
     }
 
     /**
-     * Retrieves the most recent N notifications.
+     * Updates an existing notification to STATUS_SENT after successful Telegram transmission.
+     */
+    fun markAsSent(id: Long): Boolean {
+        return try {
+            val db = writableDatabase
+            val values = ContentValues().apply {
+                put(COL_FORWARDED, STATUS_SENT)
+            }
+            val rows = db.update(TABLE_NAME, values, "$COL_ID = ?", arrayOf(id.toString()))
+            rows > 0
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Retrieves all pending unsent notifications (STATUS_PENDING = 0) ordered chronologically.
+     */
+    fun getPendingNotifications(limit: Int = 100): List<NotificationRecord> {
+        val list = mutableListOf<NotificationRecord>()
+        try {
+            val db = readableDatabase
+            val cursor = db.query(
+                TABLE_NAME,
+                null,
+                "$COL_FORWARDED = ?",
+                arrayOf(STATUS_PENDING.toString()),
+                null,
+                null,
+                "$COL_ID ASC",
+                limit.toString()
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    list.add(cursorToRecord(it))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    /**
+     * Retrieves the most recent N notifications for `/history` command.
      */
     fun getRecentNotifications(limit: Int = 5): List<NotificationRecord> {
         val list = mutableListOf<NotificationRecord>()
@@ -107,17 +166,7 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
             )
             cursor.use {
                 while (it.moveToNext()) {
-                    val record = NotificationRecord(
-                        id = it.getLong(it.getColumnIndexOrThrow(COL_ID)),
-                        packageName = it.getString(it.getColumnIndexOrThrow(COL_PACKAGE_NAME)),
-                        appName = it.getString(it.getColumnIndexOrThrow(COL_APP_NAME)),
-                        title = it.getString(it.getColumnIndexOrThrow(COL_TITLE)),
-                        content = it.getString(it.getColumnIndexOrThrow(COL_CONTENT)),
-                        timestamp = it.getLong(it.getColumnIndexOrThrow(COL_TIMESTAMP)),
-                        dateStr = it.getString(it.getColumnIndexOrThrow(COL_DATE_STR)),
-                        isForwarded = it.getInt(it.getColumnIndexOrThrow(COL_FORWARDED)) == 1
-                    )
-                    list.add(record)
+                    list.add(cursorToRecord(it))
                 }
             }
         } catch (e: Exception) {
@@ -154,5 +203,33 @@ class NotificationDbHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
             e.printStackTrace()
         }
         return count
+    }
+
+    /**
+     * Prunes old records, preserving the latest N entries to keep database size minimal forever.
+     */
+    fun pruneOldRecords(maxToKeep: Int = 5000) {
+        try {
+            val db = writableDatabase
+            db.execSQL(
+                "DELETE FROM $TABLE_NAME WHERE $COL_ID NOT IN (SELECT $COL_ID FROM $TABLE_NAME ORDER BY $COL_ID DESC LIMIT ?)",
+                arrayOf(maxToKeep.toString())
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun cursorToRecord(cursor: android.database.Cursor): NotificationRecord {
+        return NotificationRecord(
+            id = cursor.getLong(cursor.getColumnIndexOrThrow(COL_ID)),
+            packageName = cursor.getString(cursor.getColumnIndexOrThrow(COL_PACKAGE_NAME)),
+            appName = cursor.getString(cursor.getColumnIndexOrThrow(COL_APP_NAME)),
+            title = cursor.getString(cursor.getColumnIndexOrThrow(COL_TITLE)),
+            content = cursor.getString(cursor.getColumnIndexOrThrow(COL_CONTENT)),
+            timestamp = cursor.getLong(cursor.getColumnIndexOrThrow(COL_TIMESTAMP)),
+            dateStr = cursor.getString(cursor.getColumnIndexOrThrow(COL_DATE_STR)),
+            status = cursor.getInt(cursor.getColumnIndexOrThrow(COL_FORWARDED))
+        )
     }
 }

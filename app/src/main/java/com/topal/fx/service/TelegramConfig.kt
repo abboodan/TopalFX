@@ -21,8 +21,13 @@ data class TelegramIncomingMessage(
     val text: String
 )
 
+data class QueuedMessage(
+    val text: String,
+    val onSentCallback: (() -> Unit)? = null
+)
+
 /**
- * Built-in configuration, anti-spam throttling, deduplication, and two-way
+ * Built-in configuration, anti-spam throttling, deduplication, and resilient two-way
  * communication dispatcher for Telegram Bot commands and notification relay.
  */
 object TelegramConfig {
@@ -36,7 +41,7 @@ object TelegramConfig {
     private const val DEDUP_WINDOW_MS = 45_000L
 
     // Message channel queue to serialize sending
-    private val messageQueue = Channel<String>(capacity = 50)
+    private val messageQueue = Channel<QueuedMessage>(capacity = 100)
 
     // LRU-style cache for deduplication: key -> timestamp
     private val recentHashes = Collections.synchronizedMap(object : LinkedHashMap<String, Long>(30, 0.75f, true) {
@@ -50,15 +55,17 @@ object TelegramConfig {
     init {
         // Start background worker to process queue sequentially
         queueScope.launch {
-            for (message in messageQueue) {
-                val backoffSeconds = sendHttpRequest(message)
-                if (backoffSeconds > 0) {
-                    // Respect Telegram 429 Retry-After response
-                    delay(backoffSeconds * 1000L)
-                } else {
-                    // Standard pacing delay between messages
-                    delay(MIN_INTERVAL_MS)
+            for (queued in messageQueue) {
+                val success = sendHttpRequestWithRetry(queued.text)
+                if (success) {
+                    try {
+                        queued.onSentCallback?.invoke()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
+                // Standard safe pacing delay between consecutive messages
+                delay(MIN_INTERVAL_MS)
             }
         }
     }
@@ -66,7 +73,13 @@ object TelegramConfig {
     /**
      * Enqueues a notification with instant deduplication check.
      */
-    fun enqueueNotification(appName: String, title: String, text: String, formattedMessage: String) {
+    fun enqueueNotification(
+        appName: String,
+        title: String,
+        text: String,
+        formattedMessage: String,
+        onSent: (() -> Unit)? = null
+    ) {
         val dedupKey = "$appName|$title|$text"
         val now = System.currentTimeMillis()
 
@@ -79,22 +92,28 @@ object TelegramConfig {
             recentHashes[dedupKey] = now
         }
 
-        // Offer to the channel; if channel is full, drops silently to prevent memory leak
-        messageQueue.trySend(formattedMessage)
+        messageQueue.trySend(QueuedMessage(text = formattedMessage, onSentCallback = onSent))
     }
 
     /**
      * Sends a direct response (e.g. command reply) through the queue.
      */
-    fun sendReply(text: String) {
-        messageQueue.trySend(text)
+    fun sendReply(text: String, onSent: (() -> Unit)? = null) {
+        messageQueue.trySend(QueuedMessage(text = text, onSentCallback = onSent))
+    }
+
+    /**
+     * Synchronously sends a single message with retry logic (used for offline batch flush).
+     */
+    suspend fun sendDirectSync(text: String): Boolean = withContext(Dispatchers.IO) {
+        sendHttpRequestWithRetry(text)
     }
 
     /**
      * Long-polling getUpdates call to receive incoming commands from Telegram.
+     * Returns List of updates on success, or null on network error / disconnection.
      */
-    suspend fun fetchUpdates(offset: Long, timeoutSeconds: Int = 20): List<TelegramIncomingMessage> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<TelegramIncomingMessage>()
+    suspend fun fetchUpdates(offset: Long, timeoutSeconds: Int = 20): List<TelegramIncomingMessage>? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
             val urlString = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=$offset&timeout=$timeoutSeconds&allowed_updates=[\"message\"]"
@@ -109,6 +128,7 @@ object TelegramConfig {
                 val root = JSONObject(responseString)
                 if (root.optBoolean("ok", false)) {
                     val results = root.optJSONArray("result")
+                    val list = mutableListOf<TelegramIncomingMessage>()
                     if (results != null) {
                         for (i in 0 until results.length()) {
                             val updateObj = results.getJSONObject(i)
@@ -133,63 +153,93 @@ object TelegramConfig {
                             }
                         }
                     }
+                    return@withContext list
                 }
             }
+            return@withContext null
         } catch (e: Exception) {
             // Silently handle read timeouts or network drops
+            return@withContext null
         } finally {
             connection?.disconnect()
         }
-        list
     }
 
     /**
-     * Sends HTTP POST request to Telegram API.
-     * Returns backoff seconds if 429 Too Many Requests was returned, or 0 on success/other errors.
+     * Sends HTTP POST request to Telegram API with automatic retries for rate limits (429)
+     * and transient network blinks. Returns true if successfully delivered.
      */
-    private fun sendHttpRequest(text: String): Long {
-        var connection: HttpURLConnection? = null
-        try {
-            val urlString = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
-            val url = URL(urlString)
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 6000
-            connection.readTimeout = 8000
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+    private fun sendHttpRequestWithRetry(text: String): Boolean {
+        var attempts = 0
+        val maxAttempts = 3
+        while (attempts < maxAttempts) {
+            attempts++
+            var connection: HttpURLConnection? = null
+            try {
+                val urlString = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+                val url = URL(urlString)
+                connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 7000
+                connection.readTimeout = 9000
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
 
-            val payload = JSONObject().apply {
-                put("chat_id", CHAT_ID)
-                put("text", text)
-            }
-
-            OutputStreamWriter(connection.outputStream, "UTF-8").use { writer ->
-                writer.write(payload.toString())
-                writer.flush()
-            }
-
-            val responseCode = connection.responseCode
-
-            if (responseCode == 429) {
-                val errorStream = connection.errorStream?.bufferedReader()?.use { it.readText() }
-                if (!errorStream.isNullOrEmpty()) {
-                    try {
-                        val json = JSONObject(errorStream)
-                        val parameters = json.optJSONObject("parameters")
-                        val retryAfter = parameters?.optLong("retry_after", 5L) ?: 5L
-                        return retryAfter.coerceIn(2L, 60L)
-                    } catch (_: Exception) {}
+                val payload = JSONObject().apply {
+                    put("chat_id", CHAT_ID)
+                    put("text", text)
                 }
-                return 5L
-            }
 
-            return 0L
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return 0L
-        } finally {
-            connection?.disconnect()
+                OutputStreamWriter(connection.outputStream, "UTF-8").use { writer ->
+                    writer.write(payload.toString())
+                    writer.flush()
+                }
+
+                val responseCode = connection.responseCode
+
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    return true
+                }
+
+                if (responseCode == 429) {
+                    val errorStream = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    var retryAfter = 5L
+                    if (!errorStream.isNullOrEmpty()) {
+                        try {
+                            val json = JSONObject(errorStream)
+                            val parameters = json.optJSONObject("parameters")
+                            retryAfter = parameters?.optLong("retry_after", 5L) ?: 5L
+                        } catch (_: Exception) {}
+                    }
+                    val waitMs = retryAfter.coerceIn(2L, 60L) * 1000L
+                    try {
+                        Thread.sleep(waitMs)
+                    } catch (_: InterruptedException) {}
+                    // Retry sending the SAME message
+                    continue
+                }
+
+                // If server error (5xx), wait briefly and retry
+                if (responseCode in 500..599) {
+                    try {
+                        Thread.sleep(2000L)
+                    } catch (_: InterruptedException) {}
+                    continue
+                }
+
+                // Client error (4xx other than 429) - invalid request, don't loop endlessly
+                return false
+            } catch (e: Exception) {
+                // Transient network connection drops / timeouts
+                if (attempts < maxAttempts) {
+                    try {
+                        Thread.sleep(2000L * attempts)
+                    } catch (_: InterruptedException) {}
+                }
+            } finally {
+                connection?.disconnect()
+            }
         }
+        return false
     }
 }

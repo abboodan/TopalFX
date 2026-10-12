@@ -4,6 +4,21 @@ This ledger tracks the version increments and changelogs of the TopalFX Pro remi
 
 ---
 
+## [v2.1.0] - 2026-10-12
+### Added
+- **Offline Storage & Automatic Reconnection Sync**: Eligible intercepted notifications are immediately recorded locally in SQLite with `STATUS_PENDING`. When network connectivity (Wi-Fi or Mobile Data) is restored, the service automatically detects internet availability and flushes all pending notifications to Telegram sequentially with a `(⏰ تم الإرسال بعد استعادة الاتصال)` timestamp note.
+- **Manual Force Sync Command**: Added `/sync` bot command to remotely trigger an immediate sync of any queued offline notifications.
+- **Auto-Rebind on Disconnect**: Implemented `onListenerDisconnected()` calling `requestRebind()` to automatically re-establish the notification listener service if terminated by Android under low memory conditions.
+- **Device Boot & Package Update Survival**: Added `RECEIVE_BOOT_COMPLETED` permission and `BootReceiver` so TopalFX Pro background components are recognized immediately upon device boot without manual intervention.
+- **Automatic Storage Pruning**: Periodically prunes historical notifications, preserving the newest 5,000 entries to prevent storage bloat over months of continuous operation.
+
+### Fixed
+- **HTTP 429 Retry Loss Prevention**: Fixed a bug where a 429 rate-limited message was dropped after waiting; the engine now guarantees that the exact rejected message is retried and delivered.
+- **Offline Battery Conservation**: Backs off command polling to 15-second intervals when internet is completely unreachable, eliminating CPU spin and conserving battery.
+- **Command Polling Isolation**: Isolated individual command parsing in separate exception blocks so malformed inputs never halt update offset progression.
+
+---
+
 ## [v2.0.0] - 2026-09-16
 ### Added
 - **Two-Way Telegram Bot Remote Control**: Control the notification interceptor remotely using Telegram commands (`/status`, `/pause`, `/resume`, `/ignore <app>`, `/unignore <app>`, `/list_ignored`, `/history [n]`, `/help`).

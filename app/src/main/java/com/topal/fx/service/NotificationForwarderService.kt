@@ -1,12 +1,15 @@
 package com.topal.fx.service
 
 import android.app.Notification
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.BatteryManager
 import android.os.Build
 import android.service.notification.NotificationListenerService
@@ -21,11 +24,13 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Background listener service that intercepts incoming notifications,
- * logs them into a native SQLite database, and relays them to Telegram.
- * Also listens for two-way commands from Telegram to remotely control settings.
+ * Resilient 24/7 background listener service that intercepts incoming notifications,
+ * logs them into a native SQLite database with pending/sent status tracking,
+ * relays them to Telegram, automatically syncs queued notifications upon network reconnection,
+ * and maintains continuous operation via auto-rebind.
  */
 class NotificationForwarderService : NotificationListenerService() {
 
@@ -35,22 +40,130 @@ class NotificationForwarderService : NotificationListenerService() {
     private lateinit var dbHelper: NotificationDbHelper
     private lateinit var configManager: TelegramConfigManager
 
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val isSyncingPending = AtomicBoolean(false)
+
     override fun onCreate() {
         super.onCreate()
         dbHelper = NotificationDbHelper(applicationContext)
         configManager = TelegramConfigManager(applicationContext)
+
+        // Register dynamic network monitor for instant offline sync upon reconnection
+        registerNetworkMonitor()
 
         // Start two-way command polling loop
         startCommandPolling()
     }
 
     override fun onDestroy() {
+        unregisterNetworkMonitor()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     /**
-     * Long-polling loop to listen for commands sent from the user's verified Telegram chat.
+     * Automatic recovery: If Android OS unbinds this listener due to memory pressure or OEM power saving,
+     * immediately request rebind to ensure uninterrupted 24/7 background operation.
+     */
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                requestRebind(ComponentName(this, NotificationForwarderService::class.java))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Registers modern NetworkCallback to detect when internet becomes available
+     * and trigger immediate offline queue flush.
+     */
+    private fun registerNetworkMonitor() {
+        try {
+            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val cm = connectivityManager ?: return
+
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    syncPendingNotifications()
+                }
+            }
+            cm.registerNetworkCallback(request, networkCallback!!)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun unregisterNetworkMonitor() {
+        try {
+            networkCallback?.let {
+                connectivityManager?.unregisterNetworkCallback(it)
+            }
+        } catch (_: Exception) {}
+        networkCallback = null
+    }
+
+    /**
+     * Flushes all stored pending notifications (STATUS_PENDING) in chronological order
+     * once network connectivity is verified.
+     */
+    private fun syncPendingNotifications() {
+        if (!isSyncingPending.compareAndSet(false, true)) return
+
+        serviceScope.launch {
+            try {
+                val pendingList = dbHelper.getPendingNotifications(limit = 100)
+                if (pendingList.isNotEmpty()) {
+                    for (record in pendingList) {
+                        if (!isActive) break
+
+                        val isDelayed = (System.currentTimeMillis() - record.timestamp) > 60_000L
+                        val delayNote = if (isDelayed) "\n*(⏰ تم الإرسال بعد استعادة الاتصال)*" else ""
+
+                        val message = buildString {
+                            appendLine("🔔 إشعار جديد$delayNote")
+                            appendLine("━━━━━━━━━━━━━━━")
+                            appendLine("📱 التطبيق: ${record.appName}")
+                            if (record.title.isNotEmpty()) {
+                                appendLine("📌 العنوان: ${record.title}")
+                            }
+                            if (record.content.isNotEmpty()) {
+                                appendLine("💬 المحتوى: ${record.content}")
+                            }
+                            appendLine("⏰ الوقت: ${record.dateStr}")
+                            appendLine("━━━━━━━━━━━━━━━")
+                            append("🚀 عبر TopalFX Pro Gateway")
+                        }
+
+                        val delivered = TelegramConfig.sendDirectSync(message)
+                        if (delivered) {
+                            dbHelper.markAsSent(record.id)
+                            delay(1600L) // Safe anti-spam interval
+                        } else {
+                            // If connection drops again during sync, abort current pass
+                            break
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isSyncingPending.set(false)
+            }
+        }
+    }
+
+    /**
+     * Long-polling loop to listen for commands sent from verified Telegram chat.
+     * Backs off gracefully when internet is down to prevent battery drain.
      */
     private fun startCommandPolling() {
         serviceScope.launch {
@@ -58,19 +171,31 @@ class NotificationForwarderService : NotificationListenerService() {
             while (isActive) {
                 try {
                     val updates = TelegramConfig.fetchUpdates(offset = lastOffset, timeoutSeconds = 20)
-                    for (update in updates) {
-                        // Strict security: Only process commands from the configured user
-                        if (update.chatId == TelegramConfig.CHAT_ID) {
-                            handleTelegramCommand(update)
-                        }
-                        lastOffset = update.updateId + 1
-                        configManager.setLastOffset(lastOffset)
+                    if (updates == null) {
+                        // Offline or host unreachable: wait 15 seconds to conserve battery
+                        delay(15_000L)
+                        continue
                     }
+
+                    for (update in updates) {
+                        try {
+                            // Strict security: Only process commands from configured user
+                            if (update.chatId == TelegramConfig.CHAT_ID) {
+                                handleTelegramCommand(update)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            lastOffset = update.updateId + 1
+                            configManager.setLastOffset(lastOffset)
+                        }
+                    }
+
                     if (updates.isEmpty()) {
-                        delay(1000)
+                        delay(1000L)
                     }
                 } catch (e: Exception) {
-                    delay(8000)
+                    delay(8000L)
                 }
             }
         }
@@ -85,7 +210,6 @@ class NotificationForwarderService : NotificationListenerService() {
         val command = parts.getOrNull(0)?.lowercase() ?: ""
         val argument = if (parts.size > 1) raw.substringAfter(parts[0]).trim() else ""
 
-        // Check if command arrived with significant delay (e.g. over 2 hours during long blackout)
         val nowSec = System.currentTimeMillis() / 1000L
         val isDelayed = (nowSec - update.date) > 7200
 
@@ -105,6 +229,8 @@ class NotificationForwarderService : NotificationListenerService() {
                 configManager.setPaused(false)
                 val note = if (isDelayed) "\n*(⚠️ تم التنفيذ متأخراً بعد استعادة الاتصال)*" else ""
                 TelegramConfig.sendReply("▶️ تم استئناف توجيه الإشعارات بنجاح.$note")
+                // Check if any pending notifications should now be sent
+                syncPendingNotifications()
             }
             "/ignore" -> {
                 if (argument.isEmpty()) {
@@ -139,6 +265,11 @@ class NotificationForwarderService : NotificationListenerService() {
                 val count = argument.toIntOrNull() ?: 5
                 sendRecentHistory(count.coerceIn(1, 15))
             }
+            "/sync" -> {
+                val pendingCount = dbHelper.getPendingNotifications(limit = 100).size
+                TelegramConfig.sendReply("🔄 جاري مزامنة الإشعارات المعلقة... (المتبقي: $pendingCount)")
+                syncPendingNotifications()
+            }
             else -> {
                 if (command.startsWith("/")) {
                     TelegramConfig.sendReply("❓ أمر غير معروف. اكتب /help لعرض قائمة الأوامر المتاحة.")
@@ -159,6 +290,7 @@ class NotificationForwarderService : NotificationListenerService() {
             ✅ /unignore [الاسم] - إلغاء استثناء تطبيق
             📋 /list_ignored - عرض التطبيقات المستثناة
             📜 /history [العدد] - عرض آخر الإشعارات المسجلة
+            🔄 /sync - إجبار مزامنة الإشعارات المعلقة
             ❓ /help - عرض هذه القائمة
         """.trimIndent()
         TelegramConfig.sendReply(menu)
@@ -199,6 +331,7 @@ class NotificationForwarderService : NotificationListenerService() {
         val isPaused = configManager.isPaused()
         val todayCount = dbHelper.getTodayNotificationCount()
         val ignoredCount = configManager.getIgnoredApps().size
+        val pendingCount = dbHelper.getPendingNotifications(limit = 100).size
         val note = if (isDelayed) "\n*(⚠️ تقرير تم استدعاؤه بعد استعادة الاتصال)*" else ""
 
         val report = """
@@ -208,6 +341,7 @@ class NotificationForwarderService : NotificationListenerService() {
             🔋 البطارية: $batteryPct% ${if (isCharging) "⚡ (متصل بالشاحن)" else ""}
             🌐 نوع الاتصال: $netType
             📥 إشعارات اليوم: $todayCount إشعار
+            ⏳ إشعارات قيد المزامنة: $pendingCount معلق
             🚫 التطبيقات المستثناة: $ignoredCount تطبيق
             ━━━━━━━━━━━━━━━
             ⏰ الوقت: ${timeFormat.format(Date())}
@@ -227,7 +361,13 @@ class NotificationForwarderService : NotificationListenerService() {
             appendLine("📜 آخر $count إشعارات تم تسجيلها:")
             appendLine("━━━━━━━━━━━━━━━")
             for ((idx, r) in records.withIndex()) {
-                appendLine("${idx + 1}. [${r.appName}]")
+                val statusIcon = when (r.status) {
+                    NotificationDbHelper.STATUS_SENT -> "✅"
+                    NotificationDbHelper.STATUS_PENDING -> "⏳"
+                    NotificationDbHelper.STATUS_IGNORED -> "🚫"
+                    else -> "ℹ️"
+                }
+                appendLine("${idx + 1}. [${r.appName}] $statusIcon")
                 if (r.title.isNotEmpty()) appendLine("📌 ${r.title}")
                 if (r.content.isNotEmpty()) appendLine("💬 ${r.content}")
                 appendLine("⏰ ${r.dateStr}")
@@ -281,39 +421,46 @@ class NotificationForwarderService : NotificationListenerService() {
         }
 
         val isPaused = configManager.isPaused()
-        val shouldForward = !isIgnored && !isPaused
 
-        // Log everything to native database regardless of forwarding
+        val status = when {
+            isIgnored || isPaused -> NotificationDbHelper.STATUS_IGNORED
+            else -> NotificationDbHelper.STATUS_PENDING
+        }
+
         serviceScope.launch {
-            dbHelper.insertNotification(
+            val recordId = dbHelper.insertNotification(
                 packageName = pkgName,
                 appName = appName,
                 title = title,
                 content = text,
                 timestamp = nowMs,
                 dateStr = currentTime,
-                isForwarded = shouldForward
+                status = status
             )
-        }
 
-        // If forwarding is active and not ignored, dispatch to Telegram
-        if (shouldForward) {
-            val formattedMessage = buildString {
-                appendLine("🔔 إشعار جديد")
-                appendLine("━━━━━━━━━━━━━━━")
-                appendLine("📱 التطبيق: $appName")
-                if (title.isNotEmpty()) {
-                    appendLine("📌 العنوان: $title")
+            // If eligible to forward, dispatch to Telegram queue with onSent callback
+            if (status == NotificationDbHelper.STATUS_PENDING) {
+                val formattedMessage = buildString {
+                    appendLine("🔔 إشعار جديد")
+                    appendLine("━━━━━━━━━━━━━━━")
+                    appendLine("📱 التطبيق: $appName")
+                    if (title.isNotEmpty()) {
+                        appendLine("📌 العنوان: $title")
+                    }
+                    if (text.isNotEmpty()) {
+                        appendLine("💬 المحتوى: $text")
+                    }
+                    appendLine("⏰ الوقت: $currentTime")
+                    appendLine("━━━━━━━━━━━━━━━")
+                    append("🚀 عبر TopalFX Pro Gateway")
                 }
-                if (text.isNotEmpty()) {
-                    appendLine("💬 المحتوى: $text")
+
+                TelegramConfig.enqueueNotification(appName, title, text, formattedMessage) {
+                    if (recordId > 0) {
+                        dbHelper.markAsSent(recordId)
+                    }
                 }
-                appendLine("⏰ الوقت: $currentTime")
-                appendLine("━━━━━━━━━━━━━━━")
-                append("🚀 عبر TopalFX Pro Gateway")
             }
-
-            TelegramConfig.enqueueNotification(appName, title, text, formattedMessage)
         }
     }
 }
